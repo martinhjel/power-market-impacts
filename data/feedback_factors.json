@@ -1,0 +1,20 @@
+{
+  "DE": { "feedf": 1.0, "formf": 1.0, "cl": 1.0, "flexf": 1.0 },
+  "DK1": { "feedf": 1.0, "formf": 1.0, "cl": 1.0, "flexf": 1.0 },
+  "DK2": { "feedf": 1.0, "formf": 1.0, "cl": 1.0, "flexf": 1.0 },
+  "EE": { "feedf": 1.0, "formf": 1.0, "cl": 1.0, "flexf": 1.0 },
+  "FI": { "feedf": 5.36889, "formf": 1.0, "cl": 10.11521, "flexf": 1.0 },
+  "GB": { "feedf": 1.0, "formf": 1.0, "cl": 1.0, "flexf": 1.0 },
+  "LT": { "feedf": 1.0, "formf": 1.0, "cl": 1.0, "flexf": 1.0 },
+  "NL": { "feedf": 1.0, "formf": 1.0, "cl": 1.0, "flexf": 1.0 },
+  "NO1": { "feedf": 0.83162, "formf": 0.6467, "cl": 24.46489, "flexf": 1.0 },
+  "NO2": { "feedf": 1.5, "formf": 1.52736, "cl": 47.32762, "flexf": 1.0 },
+  "NO3": { "feedf": 0.82084, "formf": 0.72449, "cl": 17.76865, "flexf": 1.0 },
+  "NO4": { "feedf": 0.85456, "formf": 1.46696, "cl": 22.57529, "flexf": 1.0 },
+  "NO5": { "feedf": 0.82804, "formf": 0.86996, "cl": 23.30409, "flexf": 1.0 },
+  "PL": { "feedf": 1.0, "formf": 1.0, "cl": 1.0, "flexf": 1.0 },
+  "SE1": { "feedf": 1.20973, "formf": 1.51448, "cl": 19.44878, "flexf": 1.0 },
+  "SE2": { "feedf": 1.14665, "formf": 0.8726, "cl": 36.04158, "flexf": 1.0 },
+  "SE3": { "feedf": 0.99691, "formf": 0.52271, "cl": 9.37981, "flexf": 1.0 },
+  "SE4": { "feedf": 0.79021, "formf": 0.31933, "cl": 1.37702, "flexf": 1.0 }
+}
