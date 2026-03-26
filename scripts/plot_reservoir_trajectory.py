@@ -8,7 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+from scripts.common import df_from_pyltm_result
 
 from scripts.common import load_scenarios, logger
 

@@ -6,7 +6,7 @@ Aggregates spillage at the busbar level and generates summary statistics.
 from pathlib import Path
 
 import pandas as pd
-from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+from scripts.common import df_from_pyltm_result
 
 from scripts.common import load_scenarios, logger
 

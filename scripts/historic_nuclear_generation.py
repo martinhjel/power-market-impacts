@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from entsoe import EntsoePandasClient
-from lpr_sintef_bifrost.utils.time import CET_winter
+from scripts.common import CET_winter
 
 from layout import my_layout
 

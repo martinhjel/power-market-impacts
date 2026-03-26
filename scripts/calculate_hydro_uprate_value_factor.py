@@ -110,7 +110,7 @@ logger.info(f"Loaded {len(scenarios)} scenarios")
 # Import after loading scenarios
 import json
 
-from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+from scripts.common import df_from_pyltm_result
 
 # ============================================================================
 # Load dataset configurations to get plant capacities
@@ -121,11 +121,11 @@ logger.info("\nLoading dataset configurations to extract plant capacities...")
 # Load the uprated baseline configuration
 uprate_config_path = (
     base_path
-    / f"ltm_output/{MODEL_FOLDER}/BASELINE_UPRATE_TrueHYD_FalseFF_NONELOAD_0.00TWH_NoneNUKE_NoneOFF/run_folder/emps/ltm_model.json"
+    / f"processed/{MODEL_FOLDER}/BASELINE_UPRATE_TrueHYD_FalseFF_NONELOAD_0.00TWH_NoneNUKE_NoneOFF/ltm_model.json"
 )
 no_uprate_config_path = (
     base_path
-    / f"ltm_output/{MODEL_FOLDER}/BASELINE_30TWh_FalseHYD_FalseFF_BALOAD_30.00TWH_NoneNUKE_NoneOFF/run_folder/emps/ltm_model.json"
+    / f"processed/{MODEL_FOLDER}/BASELINE_30TWh_FalseHYD_FalseFF_BALOAD_30.00TWH_NoneNUKE_NoneOFF/ltm_model.json"
 )
 
 # Load JSON directly to access plant data

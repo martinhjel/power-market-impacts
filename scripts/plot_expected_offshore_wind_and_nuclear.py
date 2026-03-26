@@ -99,7 +99,7 @@ if wind_total is not None:
 
 # Plot load
 import numpy as np
-from lpr_sintef_bifrost.utils.time import CET_winter
+from scripts.common import CET_winter
 
 from data import PowerGamaDataLoader
 

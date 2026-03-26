@@ -2,13 +2,20 @@
 Common utilities and classes for EMPS visualization scripts.
 """
 
+import datetime
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+# Central European Time (UTC+1, winter/standard time).
+# Replaces lpr_sintef_bifrost.utils.time.CET_winter so scripts work without
+# the simulation library installed.
+CET_winter = datetime.timezone(datetime.timedelta(hours=1))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -185,6 +192,105 @@ class ScenarioResults:
         return df_from_pyltm_result(dclines[dcline_name].transmission_results())
 
 
+def df_from_pyltm_result(result) -> pd.DataFrame:
+    """
+    Convert an LTM result object to a DataFrame.
+
+    If the result is already a DataFrame (returned by CachedBusbar / CachedReservoir),
+    it is passed through unchanged. Otherwise the lpr_sintef_bifrost converter is used.
+    This allows plotting scripts to work with both live LTM sessions and cached parquet
+    data without modification.
+    """
+    if isinstance(result, pd.DataFrame):
+        return result
+    from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result as _ltm_convert
+    return _ltm_convert(result)
+
+
+# ---------------------------------------------------------------------------
+# Cached result classes — read from processed/ parquet files produced by
+# extract_results.py. Provide the same interface as the live LTM objects so
+# plotting scripts need no changes beyond swapping the import of
+# df_from_pyltm_result and pointing load_scenarios() at processed/ paths.
+# ---------------------------------------------------------------------------
+
+class CachedReservoir:
+    """Proxy for an LTM reservoir object backed by parquet files."""
+
+    def __init__(self, path: Path, name: str):
+        self._path = Path(path)
+        self.name = name
+
+    def reservoir(self, time_axis: bool = True) -> pd.DataFrame:
+        return pd.read_parquet(self._path / "content.parquet")
+
+    def spill(self, time_axis: bool = True) -> pd.DataFrame:
+        return pd.read_parquet(self._path / "spill.parquet")
+
+    def discharge(self, time_axis: bool = True) -> pd.DataFrame:
+        return pd.read_parquet(self._path / "discharge.parquet")
+
+    def production(self, time_axis: bool = True) -> pd.DataFrame:
+        return pd.read_parquet(self._path / "production.parquet")
+
+
+class CachedBusbar:
+    """Proxy for an LTM busbar object backed by parquet files."""
+
+    def __init__(self, path: Path, name: str, reservoir_names: List[str]):
+        self._path = Path(path)
+        self.name = name
+        self._reservoir_names = reservoir_names
+
+    def market_result_price(self) -> pd.DataFrame:
+        return pd.read_parquet(self._path / "price.parquet")
+
+    def sum_load(self) -> pd.DataFrame:
+        return pd.read_parquet(self._path / "load.parquet")
+
+    def sum_hydro_production(self) -> pd.DataFrame:
+        return pd.read_parquet(self._path / "hydro_production.parquet")
+
+    def sum_reservoir(self) -> pd.DataFrame:
+        return pd.read_parquet(self._path / "reservoir_agg.parquet")
+
+    def reservoirs(self) -> List[CachedReservoir]:
+        return [
+            CachedReservoir(self._path / "reservoirs" / name, name)
+            for name in self._reservoir_names
+        ]
+
+
+class CachedScenarioResults:
+    """
+    Drop-in replacement for ScenarioResults that reads from parquet files
+    produced by extract_results.py instead of live LTM simulation output.
+    Does not require lpr_sintef_bifrost to be installed.
+    """
+
+    def __init__(self, processed_path: Path):
+        self._path = Path(processed_path)
+        self.name = self._path.name
+        self._metadata: dict | None = None
+
+    @property
+    def metadata(self) -> dict:
+        if self._metadata is None:
+            with open(self._path / "metadata.json") as f:
+                self._metadata = json.load(f)
+        return self._metadata
+
+    def get_busbars(self) -> Dict[str, CachedBusbar]:
+        return {
+            area: CachedBusbar(
+                self._path / area,
+                area,
+                info.get("reservoirs", []),
+            )
+            for area, info in self.metadata["busbars"].items()
+        }
+
+
 def add_grouped_legend(ax: plt.Axes, styler: ScenarioStyler):
     """Add simplified legend to plot showing only scenarios."""
     handles, labels = ax.get_legend_handles_labels()
@@ -201,12 +307,36 @@ def add_grouped_legend(ax: plt.Axes, styler: ScenarioStyler):
         )
 
 
-def load_scenarios(scenario_paths: Dict[str, Path]) -> Dict[str, ScenarioResults]:
-    """Load scenario results from paths."""
+def load_scenarios(scenario_paths: Dict[str, Path]) -> Dict[str, "ScenarioResults | CachedScenarioResults"]:
+    """
+    Load scenario results from paths.
+
+    Auto-detects whether to use cached parquet data or live LTM output:
+    - If a path points directly to a processed/ folder (contains metadata.json),
+      CachedScenarioResults is used — no lpr_sintef_bifrost required.
+    - If a path points to ltm_output/, the corresponding processed/ path is
+      checked first (by substituting "ltm_output" -> "processed" in the path).
+    - Falls back to ScenarioResults (live LTM) if no processed data is found.
+    """
     scenario_results = {}
     for scenario_name, scenario_path in scenario_paths.items():
+        scenario_path = Path(scenario_path)
         try:
-            logger.info(f"Loading {scenario_name}...")
+            # Check if path is already a processed directory
+            if (scenario_path / "metadata.json").exists():
+                logger.info(f"Loading cached {scenario_name}...")
+                scenario_results[scenario_name] = CachedScenarioResults(scenario_path)
+                continue
+
+            # Try the corresponding processed/ path
+            processed_path = Path(str(scenario_path).replace("ltm_output", "processed", 1))
+            if (processed_path / "metadata.json").exists():
+                logger.info(f"Loading cached {scenario_name}...")
+                scenario_results[scenario_name] = CachedScenarioResults(processed_path)
+                continue
+
+            # Fall back to live LTM
+            logger.info(f"Loading {scenario_name} from LTM...")
             scenario_results[scenario_name] = ScenarioResults(scenario_path)
         except Exception as e:
             logger.warning(f"Failed to load {scenario_name}: {e}")

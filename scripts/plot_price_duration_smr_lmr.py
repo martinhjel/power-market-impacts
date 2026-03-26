@@ -94,7 +94,7 @@ if not scenarios:
 logger.info(f"Loaded {len(scenarios)} scenarios")
 
 # Import after loading scenarios
-from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+from scripts.common import df_from_pyltm_result
 
 # ============================================================================
 # Extract price data for each scenario and area
