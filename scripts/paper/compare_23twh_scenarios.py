@@ -333,6 +333,7 @@ def calculate_area_metrics_from_processed_frame(
     work["_price"] = numeric_series(df, "price")
     work["_load"] = numeric_series(df, "load")
     work["_price_load_sum"] = work["_price"] * work["_load"]
+    work["_price_sq_load_sum"] = work["_price"] ** 2 * work["_load"]
     work["_consumer_surplus_eur"] = work["_load"] * (reference_price - work["_price"])
     work["_generation_mwh"] = 0.0
     work["_producer_surplus_eur"] = 0.0
@@ -345,6 +346,7 @@ def calculate_area_metrics_from_processed_frame(
     grouped = work.groupby("area", observed=True, sort=True).agg(
         mean_price_eur_mwh=("_price", "mean"),
         price_load_sum=("_price_load_sum", "sum"),
+        price_sq_load_sum=("_price_sq_load_sum", "sum"),
         load_mwh=("_load", "sum"),
         generation_mwh=("_generation_mwh", "sum"),
         consumer_surplus_eur=("_consumer_surplus_eur", "sum"),
@@ -354,7 +356,14 @@ def calculate_area_metrics_from_processed_frame(
     grouped["load_weighted_price_eur_mwh"] = grouped["load_weighted_price_eur_mwh"].fillna(
         grouped["mean_price_eur_mwh"]
     )
+    grouped["price_std_eur_mwh"] = np.sqrt(
+        (
+            grouped["price_sq_load_sum"] / grouped["load_mwh"].replace(0.0, np.nan)
+            - grouped["load_weighted_price_eur_mwh"] ** 2
+        ).clip(lower=0.0)
+    )
     grouped["price_load_sum"] = grouped["price_load_sum"] / n_weather_years
+    grouped["price_sq_load_sum"] = grouped["price_sq_load_sum"] / n_weather_years
     grouped["load_twh"] = grouped["load_mwh"] / n_weather_years / 1e6
     grouped["generation_twh"] = grouped["generation_mwh"] / n_weather_years / 1e6
     grouped["consumer_surplus_meur"] = grouped["consumer_surplus_eur"] / n_weather_years / 1e6
@@ -364,7 +373,9 @@ def calculate_area_metrics_from_processed_frame(
     metric_columns = [
         "mean_price_eur_mwh",
         "load_weighted_price_eur_mwh",
+        "price_std_eur_mwh",
         "price_load_sum",
+        "price_sq_load_sum",
         "load_twh",
         "generation_twh",
         "consumer_surplus_meur",
@@ -382,9 +393,14 @@ def aggregate_metrics(
     producer_areas: Iterable[str],
 ) -> dict[str, float]:
     price_load_sum = sum(area_results[area]["price_load_sum"] for area in price_areas if area in area_results)
+    price_sq_load_sum = sum(
+        area_results[area]["price_sq_load_sum"] for area in price_areas if area in area_results
+    )
     load_twh = sum(area_results[area]["load_twh"] for area in consumer_areas if area in area_results)
     load_mwh_annual = load_twh * 1e6
     mean_price = price_load_sum / load_mwh_annual if load_mwh_annual > 0 else np.nan
+    price_variance = price_sq_load_sum / load_mwh_annual - mean_price**2 if load_mwh_annual > 0 else np.nan
+    price_std = np.sqrt(max(price_variance, 0.0)) if np.isfinite(price_variance) else np.nan
 
     consumer_surplus = sum(
         area_results[area]["consumer_surplus_meur"] for area in consumer_areas if area in area_results
@@ -396,6 +412,7 @@ def aggregate_metrics(
 
     return {
         "mean_price_eur_mwh": mean_price,
+        "price_std_eur_mwh": price_std,
         "load_twh": load_twh,
         "generation_twh": generation_twh,
         "consumer_surplus_meur": consumer_surplus,
@@ -442,6 +459,7 @@ def add_deltas(df: pd.DataFrame, key_column: str) -> pd.DataFrame:
     out = df.copy()
     metric_columns = [
         "mean_price_eur_mwh",
+        "price_std_eur_mwh",
         "load_twh",
         "generation_twh",
         "consumer_surplus_meur",
@@ -575,6 +593,20 @@ def plot_mean_price_comparison(region_df: pd.DataFrame, output_dir: Path, logger
         y_label="Mean price (EUR/MWh)",
         title="Mean Power Price Compared with 23 TWh Baselines",
         output_filename="baseline_23twh_mean_price_comparison.pdf",
+        sharey=False,
+        tight_y_axis=True,
+    )
+
+
+def plot_price_std_comparison(region_df: pd.DataFrame, output_dir: Path, logger: logging.Logger) -> None:
+    plot_regional_metric_comparison(
+        region_df=region_df,
+        output_dir=output_dir,
+        logger=logger,
+        metric_column="price_std_eur_mwh",
+        y_label="Price standard deviation (EUR/MWh)",
+        title="Expected Power Price Standard Deviation Compared with 23 TWh Baselines",
+        output_filename="baseline_23twh_price_std_comparison.pdf",
         sharey=False,
         tight_y_axis=True,
     )
@@ -722,6 +754,7 @@ def plot_no_area_price_delta_heatmap(area_df: pd.DataFrame, output_dir: Path, lo
 
 def write_plots(output_dir: Path, region_df: pd.DataFrame, area_df: pd.DataFrame, logger: logging.Logger) -> None:
     plot_mean_price_comparison(region_df, output_dir, logger)
+    plot_price_std_comparison(region_df, output_dir, logger)
     plot_consumer_surplus_comparison(region_df, output_dir, logger)
     plot_producer_surplus_comparison(region_df, output_dir, logger)
     plot_surplus_delta_comparison(region_df, output_dir, logger)
