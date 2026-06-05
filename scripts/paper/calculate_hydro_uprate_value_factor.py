@@ -110,7 +110,7 @@ paper_output_path.mkdir(parents=True, exist_ok=True)
 
 # Load scenarios
 logger.info("Loading scenarios...")
-scenario_paths = {name: base_path / f"ltm_output/{MODEL_FOLDER}/{name}" for name in SCENARIOS + [BASELINE_NO_UPRATE]}
+scenario_paths = {name: base_path / f"ltm_processed/{MODEL_FOLDER}/{name}" for name in SCENARIOS + [BASELINE_NO_UPRATE]}
 scenarios = load_scenarios(scenario_paths)
 
 if not scenarios:
@@ -119,91 +119,57 @@ if not scenarios:
 
 logger.info(f"Loaded {len(scenarios)} scenarios")
 
-import json
-
 # ============================================================================
-# Load dataset configurations to get plant capacities
+# Load processed plant-capacity metadata
 # ============================================================================
 
-logger.info("\nLoading dataset configurations to extract plant capacities...")
+logger.info("\nLoading uprated hydropower plant-capacity metadata...")
 
-# Load the uprated baseline configuration
-uprate_config_path = (
-    base_path
-    / f"ltm_output/{MODEL_FOLDER}/BASELINE_UPRATE_TrueHYD_FalseFF_NONELOAD_0.00TWH_NoneNUKE_NoneOFF/run_folder/emps/ltm_model.json"
-)
-no_uprate_config_path = (
-    base_path
-    / f"ltm_output/{MODEL_FOLDER}/BASELINE_30TWh_FalseHYD_FalseFF_BALOAD_30.00TWH_NoneNUKE_NoneOFF/run_folder/emps/ltm_model.json"
-)
+capacity_metadata_path = base_path / "data" / "uprated_hydro_capacity.csv"
 
-# Load JSON directly to access plant data
-with open(uprate_config_path, "r") as f:
-    uprate_config_json = json.load(f)
-with open(no_uprate_config_path, "r") as f:
-    no_uprate_config_json = json.load(f)
-
-# Extract plant lists
-uprate_plants_data = uprate_config_json["model"]["plants"]
-no_uprate_plants_data = no_uprate_config_json["model"]["plants"]
-
-# Create lookup dictionaries
-uprate_plants_dict = {p["name"]: p for p in uprate_plants_data}
-no_uprate_plants_dict = {p["name"]: p for p in no_uprate_plants_data}
-logger.info(f"Loaded {len(uprate_plants_dict)} plants from uprate config")
-logger.info(f"Loaded {len(no_uprate_plants_dict)} plants from no-uprate config")
-
-# Extract plant capacities and calculate uprated capacity by area
 uprated_plant_info = {}
 total_added_capacity_by_area = {area: 0 for area in NO_AREAS}
 
-for plant_name in UPRATED_PLANTS:
-    # Find plant in uprated config (plants are named "plant_<name>" in the config)
-    config_plant_name = f"plant_{plant_name}"
-
-    logger.info(f"Looking for plant: {config_plant_name}")
-
-    if config_plant_name in uprate_plants_dict and config_plant_name in no_uprate_plants_dict:
-        uprate_plant = uprate_plants_dict[config_plant_name]
-        no_uprate_plant = no_uprate_plants_dict[config_plant_name]
-
-        logger.info(f"  Found {config_plant_name} in both configs")
-
-        # Get capacity from PQ curves - access the first timestamp's y values
-        pq_curves_uprate = uprate_plant.get("pq_curves", {})
-        pq_curves_no_uprate = no_uprate_plant.get("pq_curves", {})
-
-        logger.info(f"  PQ curves uprates: {list(pq_curves_uprate.values())}")
-        logger.info(f"  PQ curves no-uprate: {list(pq_curves_no_uprate.values())}")
-
-        if pq_curves_uprate and pq_curves_no_uprate:
-            # Get the first timestamp key (should be '2024-01-01T00:00:00Z')
-            timestamp_key = list(pq_curves_uprate.keys())[0]
-
-            capacity_uprate = pq_curves_uprate[timestamp_key]["y"][-1]  # Max power
-            capacity_no_uprate = pq_curves_no_uprate.get(timestamp_key, {}).get("y", [0])[-1]
-
-            added_capacity = capacity_uprate - capacity_no_uprate
-
-            logger.info(
-                f"  Capacity: {capacity_no_uprate:.1f} MW → {capacity_uprate:.1f} MW (diff: {added_capacity:.1f} MW)"
-            )
-
-            # Find the area for this plant via metadata
-            plant_area = UPRATED_PLANTS[plant_name].get("elspot_area")
-            logger.info(f"  Elspot area: {plant_area} for plant '{plant_name}'")
-
-            if plant_area and added_capacity > 0:
-                uprated_plant_info[plant_name] = {
-                    "area": plant_area,
-                    "capacity_uprate_mw": capacity_uprate,
-                    "capacity_no_uprate_mw": capacity_no_uprate,
-                    "added_capacity_mw": added_capacity,
-                }
-                total_added_capacity_by_area[plant_area] += added_capacity
-                logger.info(
-                    f"  {plant_name} ({plant_area}): {capacity_no_uprate:.1f} MW → {capacity_uprate:.1f} MW (+{added_capacity:.1f} MW)"
-                )
+if capacity_metadata_path.exists():
+    capacity_df = pd.read_csv(capacity_metadata_path)
+    logger.info("Loaded plant-capacity metadata from %s", capacity_metadata_path)
+    for _, row in capacity_df.iterrows():
+        plant_name = str(row["plant"])
+        plant_area = str(row["area"])
+        capacity_no_uprate = float(row["capacity_no_uprate_mw"])
+        capacity_uprate = float(row["capacity_uprate_mw"])
+        added_capacity = float(row["added_capacity_mw"])
+        uprated_plant_info[plant_name] = {
+            "area": plant_area,
+            "capacity_uprate_mw": capacity_uprate,
+            "capacity_no_uprate_mw": capacity_no_uprate,
+            "added_capacity_mw": added_capacity,
+        }
+        if plant_area in total_added_capacity_by_area:
+            total_added_capacity_by_area[plant_area] += added_capacity
+        logger.info(
+            "  %s (%s): %.1f MW -> %.1f MW (+%.1f MW)",
+            plant_name,
+            plant_area,
+            capacity_no_uprate,
+            capacity_uprate,
+            added_capacity,
+        )
+else:
+    logger.warning(
+        "Missing %s; deriving plant capacity factors from observed processed production peaks.",
+        capacity_metadata_path,
+    )
+    for plant_name, plant_data in UPRATED_PLANTS.items():
+        plant_area = plant_data.get("elspot_area")
+        if not plant_area:
+            continue
+        uprated_plant_info[plant_name] = {
+            "area": plant_area,
+            "capacity_uprate_mw": np.nan,
+            "capacity_no_uprate_mw": np.nan,
+            "added_capacity_mw": np.nan,
+        }
 
 logger.info("\nTotal added capacity by area:")
 for area in NO_AREAS:
@@ -305,6 +271,9 @@ for scenario_name, scenario in scenarios.items():
                 plant_capacity_mw = uprated_plant_info[r]["capacity_uprate_mw"]
             else:
                 plant_capacity_mw = uprated_plant_info[r]["capacity_no_uprate_mw"]
+
+        if not np.isfinite(plant_capacity_mw) or plant_capacity_mw <= 0:
+            plant_capacity_mw = np.nanmax(hydro)
 
         if plant_capacity_mw > 0:
             capacity_factor = np.nanmean(hydro) / plant_capacity_mw

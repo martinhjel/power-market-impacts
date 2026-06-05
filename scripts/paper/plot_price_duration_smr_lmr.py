@@ -95,7 +95,7 @@ paper_output_path.mkdir(parents=True, exist_ok=True)
 
 # Load scenarios
 logger.info("Loading scenarios...")
-scenario_paths = {name: base_path / f"ltm_output/{MODEL_FOLDER}/{name}" for name in SCENARIOS}
+scenario_paths = {name: base_path / f"ltm_processed/{MODEL_FOLDER}/{name}" for name in SCENARIOS}
 scenarios = load_scenarios(scenario_paths)
 
 if not scenarios:

@@ -134,7 +134,7 @@ def _load_processed_dispatch_data(scenario_path: Path) -> tuple[pd.DataFrame, pd
     return data
 
 
-scenario_paths = {name: base_path / f"ltm_output/{MODEL_FOLDER}/{name}" for name in SCENARIOS}
+scenario_paths = {name: base_path / f"ltm_processed/{MODEL_FOLDER}/{name}" for name in SCENARIOS}
 scenario_data: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
 for name, path in scenario_paths.items():
     data = _load_processed_dispatch_data(path)

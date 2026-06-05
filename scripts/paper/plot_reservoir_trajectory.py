@@ -109,7 +109,7 @@ def plot_reservoir_trajectory(
     elif mean_only_scenarios:
         selectors.update(mean_only_scenarios)
 
-    scenario_paths = {name: base_path / f"ltm_output/{MODEL_FOLDER}/{name}" for name in scenarios_to_plot.keys()}
+    scenario_paths = {name: base_path / f"ltm_processed/{MODEL_FOLDER}/{name}" for name in scenarios_to_plot.keys()}
     scenarios = load_scenarios(scenario_paths)
 
     if not scenarios:

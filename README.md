@@ -14,11 +14,13 @@ Install the public Python dependencies with:
 python -m pip install -r requirements.txt
 ```
 
-The EMPS model stack (`pyLTM`/`lpr_sintef_bifrost`) is required only to build
-datasets, run scenarios, or extract fresh LTM results. These packages may
-require separate access/licensing. The paper figure and table scripts read the
-compact processed result files in `ltm_processed/` and do not need raw LTM
-objects once those files have been created or downloaded.
+The public figure scripts read compact processed result files in
+`ltm_processed/`. Raw EMPS/LTM result folders are not required by this
+repository.
+
+The scenario-construction scripts document how the study cases were configured,
+but running EMPS itself requires external software and licensing that are not
+distributed here.
 
 ---
 
@@ -41,49 +43,37 @@ Three main technology deployment cases are studied: offshore wind (**OW**), nucl
 ## Repository Layout
 
 - `dataset_builder.py`, `dataset_adjuster.py`, `dataset_runner.py`, and
-  `scenario_runner.py` build and run the EMPS scenarios used in the study.
+  `scenario_runner.py` document and construct the EMPS scenarios used in the
+  study.
 - `nuclear_modeling.py` contains the historic/new nuclear representation used
   by the current scenario construction scripts.
-- `scripts/process_ltm_results.py` converts raw LTM outputs to
-  `ltm_processed/<model>/<scenario>/processed_data.parquet`.
-- `scripts/processed_results.py`, `scripts/merit_order.py`, and
-  `scripts/paper/processed_dispatch.py` provide the shared processed-result
-  API used by the paper scripts.
-- `scripts/paper/` contains the current figure and table generation scripts.
-  Older flat scripts under `scripts/` are retained for backwards compatibility,
-  but the `scripts/paper/` versions are the canonical current versions.
+- `scripts/processed_results.py` and `scripts/paper/processed_dispatch.py`
+  provide the shared processed-result API used by the paper scripts.
+- `scripts/paper/` contains the current figure generation scripts used for the
+  paper figures.
 
 ---
 
 ## Reproducing Outputs
 
-Download the input and processed result archives from Zenodo after the record is
-published:
+Download the input and processed result archives from Zenodo:
 
 ```bash
-python download_data.py
+python download_data.py --record-id <zenodo_record_id>
 ```
 
-The download helper expects the input data archive as `data.zip` and the
-processed result archive as `ltm_processed.tar.gz` by default. Update the
-Zenodo record ID in `download_data.py` after upload.
+The download helper expects these Zenodo files:
 
-If you have raw LTM outputs and access to the EMPS/LTM stack, create or refresh
-the compact processed files with:
-
-```bash
-python extract_results.py --model-folder PowerGamaMSc_2025_BM_1H_serial_TrueEXO_load_imp_nuke --workers 4
+```text
+data.tar.gz
+results_processed.tar.gz
+results_processed_imp_nuke.tar.gz
 ```
 
-or call the processing script directly:
+You can also set `ZENODO_RECORD_ID=<zenodo_record_id>` instead of passing
+`--record-id`.
 
-```bash
-python scripts/process_ltm_results.py \
-  --model-folder PowerGamaMSc_2025_BM_1H_serial_TrueEXO_load_imp_nuke \
-  --workers 4
-```
-
-Generate the paper figures and tables from processed results with:
+Generate the paper figures from processed results with:
 
 ```bash
 python scripts/paper/run_all_paper_outputs.py \
@@ -115,10 +105,11 @@ python scenario_runner.py \
 ```
 
 The improved nuclear representation writes to model folders with the
-`_imp_nuke` suffix, for example:
+`_imp_nuke` suffix in the original EMPS workflow. The public reproduction
+archive contains the corresponding processed output folder:
 
 ```text
-ltm_output/PowerGamaMSc_2025_BM_1H_serial_TrueEXO_load_imp_nuke/
+ltm_processed/PowerGamaMSc_2025_BM_1H_serial_TrueEXO_load_imp_nuke/
 ```
 
 ---
@@ -149,19 +140,3 @@ Source: [NVE — Costs for power production](https://www.nve.no/energi/analyser-
 | Hydro (konsesjonskraftpris) | 14.7 | 12.5 |
 
 Hydro source: [NVE — Konsesjonskraftpris](https://www.nve.no/konsesjon/konsesjonsbehandling-av-vannkraft/konsesjonskraft-og-konsesjonsavgifter/konsesjonskraftpris/)
-
----
-
-## Streamlit app
-
-From the project root directory, run:
-
-```bash
-python -m streamlit run app/home.py --server.address=0.0.0.0 --server.port=8001 --server.headless=true --server.runOnSave=true
-```
-
----
-
-## References
-
-- [PyLTM API documentation](https://docs.ltm.sintef.energy/ltm-api/guides/timesteps_per_week.html)

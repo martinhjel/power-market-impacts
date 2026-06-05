@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 try:
-    from scripts.processed_results import ProcessedScenarioResults, df_from_ltm_result
+    from scripts.processed_results import ProcessedScenarioResults
 except ModuleNotFoundError:
-    from processed_results import ProcessedScenarioResults, df_from_ltm_result
+    from processed_results import ProcessedScenarioResults
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -118,81 +118,39 @@ class ScenarioStyler:
 
 
 class ScenarioResults:
-    """Load and cache EMPS simulation results."""
+    """Load and cache processed EMPS simulation results."""
 
-    def __init__(self, result_path: Path, prefer_processed: bool = True):
+    def __init__(self, result_path: Path):
         self.result_path = Path(result_path)
         self.name = self.result_path.name
-        self._session = None
-        self._model = None
-        self._processed = ProcessedScenarioResults.from_result_path(self.result_path) if prefer_processed else None
-        if self._processed is not None:
-            logger.info(f"Using processed result data for {self.name}: {self._processed.data_path}")
-
-    @property
-    def session(self):
-        if self._session is None:
-            from lpr_sintef_bifrost.ltm import LTM
-
-            self._session = LTM.session_from_folder(self.result_path / "run_folder/emps")
-        return self._session
-
-    @property
-    def model(self):
-        if self._model is None:
-            self._model = self.session.model
-        return self._model
+        self._processed = ProcessedScenarioResults.from_result_path(self.result_path)
+        if self._processed is None:
+            raise FileNotFoundError(
+                f"Missing processed result data for {self.name}. Expected "
+                "ltm_processed/<model>/<scenario>/processed_data.parquet."
+            )
+        logger.info(f"Using processed result data for {self.name}: {self._processed.data_path}")
 
     def get_busbars(self) -> Dict[str, any]:
-        return {b.name: b for b in self.model.busbars()}
+        return {name: None for name in self.get_busbar_names()}
     
     def get_plants(self) -> Dict[str, any]:
-        return {p.name: p for p in self.model.plants()}
+        raise RuntimeError("Raw plant objects are not available; use processed result tables.")
 
     def get_prices_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        if self._processed is not None:
-            return self._processed.get_prices_for_busbar(busbar_name)
-
-        busbars = self.get_busbars()
-        if busbar_name not in busbars:
-            raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_ltm_result(busbars[busbar_name].market_result_price())
+        return self._processed.get_prices_for_busbar(busbar_name)
 
     def get_hydro_production_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        if self._processed is not None:
-            return self._processed.get_hydro_production_for_busbar(busbar_name)
-
-        busbars = self.get_busbars()
-        if busbar_name not in busbars:
-            raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_ltm_result(busbars[busbar_name].sum_hydro_production())
+        return self._processed.get_hydro_production_for_busbar(busbar_name)
 
     def get_reservoir_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        if self._processed is not None:
-            return self._processed.get_reservoir_for_busbar(busbar_name)
-
-        busbars = self.get_busbars()
-        if busbar_name not in busbars:
-            raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_ltm_result(busbars[busbar_name].sum_reservoir())
+        return self._processed.get_reservoir_for_busbar(busbar_name)
 
     def get_load_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        if self._processed is not None:
-            return self._processed.get_load_for_busbar(busbar_name)
-
-        busbars = self.get_busbars()
-        if busbar_name not in busbars:
-            raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_ltm_result(busbars[busbar_name].sum_load())
+        return self._processed.get_load_for_busbar(busbar_name)
 
     def get_market_steps_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        if self._processed is not None:
-            return self._processed.get_market_steps_for_busbar(busbar_name)
-
-        busbars = self.get_busbars()
-        if busbar_name not in busbars:
-            raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_ltm_result(busbars[busbar_name].sum_production_from_market_steps())
+        return self._processed.get_market_steps_for_busbar(busbar_name)
 
     def get_solar_for_busbar(self, busbar_name: str) -> pd.DataFrame:
         if self._processed is not None:
@@ -260,31 +218,17 @@ class ScenarioResults:
         raise KeyError(f"Processed reservoir production not found for {entity}")
 
     def get_busbar_names(self) -> list[str]:
-        if self._processed is not None:
-            return self._processed.get_busbar_names()
-        return sorted(self.get_busbars())
+        return self._processed.get_busbar_names()
 
     def get_dclines(self) -> Dict[str, any]:
-        if self._processed is not None:
-            names = self._processed.get_dcline_names()
-            return {name: None for name in names}
-        return {dcline.name: dcline for dcline in self.model.dclines()}
+        names = self._processed.get_dcline_names()
+        return {name: None for name in names}
 
     def get_dcline_names(self) -> list[str]:
-        if self._processed is not None:
-            return self._processed.get_dcline_names()
-        return sorted(self.get_dclines())
+        return self._processed.get_dcline_names()
 
     def get_dcline_flow(self, dcline_name: str) -> pd.DataFrame:
-        if self._processed is not None:
-            return self._processed.get_dcline_flow(dcline_name)
-
-        dclines = self.get_dclines()
-        if dcline_name not in dclines:
-            raise KeyError(f"DC line {dcline_name} not found")
-        if dclines[dcline_name] is None:
-            raise KeyError(f"Processed DC line {dcline_name} has no flow data")
-        return df_from_ltm_result(dclines[dcline_name].transmission_results())
+        return self._processed.get_dcline_flow(dcline_name)
 
 
 def add_grouped_legend(ax: plt.Axes, styler: ScenarioStyler):

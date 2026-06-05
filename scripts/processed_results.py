@@ -46,20 +46,18 @@ PROCESSED_COLUMNS = [*BASE_COLUMNS, *NUMERIC_COLUMNS]
 
 
 def df_from_ltm_result(result) -> pd.DataFrame:
-    try:
-        from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
-    except ImportError:
-        from lpr_sintef_bifrost.utils.dataframe import df_from_numpy_array_reference as df_from_pyltm_result
-
-    return df_from_pyltm_result(result)
+    raise RuntimeError(
+        "Raw LTM result objects are not supported in this repository. "
+        "Use ltm_processed/<model>/<scenario>/processed_data.parquet instead."
+    )
 
 
 def project_root_from_result_path(result_path: Path) -> Path:
     result_path = Path(result_path).absolute()
     parts = result_path.parts
-    if "ltm_output" not in parts:
+    if "ltm_processed" not in parts:
         return Path.cwd()
-    idx = parts.index("ltm_output")
+    idx = parts.index("ltm_processed")
     if idx == 0:
         return Path("/")
     return Path(*parts[:idx])
@@ -68,19 +66,26 @@ def project_root_from_result_path(result_path: Path) -> Path:
 def infer_model_and_scenario(result_path: Path) -> tuple[str, str]:
     result_path = Path(result_path).absolute()
     parts = result_path.parts
-    if "ltm_output" not in parts:
-        raise ValueError(f"Cannot infer model/scenario from path outside ltm_output: {result_path}")
-    idx = parts.index("ltm_output")
+    if "ltm_processed" not in parts:
+        raise ValueError(f"Cannot infer model/scenario from path outside ltm_processed: {result_path}")
+    idx = parts.index("ltm_processed")
     try:
         return parts[idx + 1], parts[idx + 2]
     except IndexError as exc:
-        raise ValueError(f"Expected ltm_output/<model>/<scenario>, got: {result_path}") from exc
+        raise ValueError(f"Expected ltm_processed/<model>/<scenario>, got: {result_path}") from exc
 
 
 def processed_data_path_for_result(
     result_path: Path,
     output_root: str | Path = DEFAULT_OUTPUT_ROOT,
 ) -> Path:
+    result_path = Path(result_path)
+    if result_path.name == "processed_data.parquet":
+        return result_path
+    if "ltm_processed" in result_path.absolute().parts:
+        candidate = result_path / "processed_data.parquet"
+        if candidate.exists() or result_path.name != "processed_data.parquet":
+            return candidate
     project_root = project_root_from_result_path(result_path)
     model_folder, scenario_name = infer_model_and_scenario(result_path)
     return project_root / output_root / model_folder / scenario_name / "processed_data.parquet"

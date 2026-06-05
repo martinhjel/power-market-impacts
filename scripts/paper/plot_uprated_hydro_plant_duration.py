@@ -24,6 +24,7 @@ if str(DATA_DIR) not in sys.path:
     sys.path.append(str(DATA_DIR))
 
 from scripts.common import load_scenarios, logger
+from scripts.processed_results import processed_data_path
 from uprate_hydro import uprate_values as UPRATED_PLANTS  # type: ignore
 
 MODEL_FOLDER = "PowerGamaMSc_2025_BM_1H_serial_TrueEXO_load"
@@ -124,9 +125,10 @@ def scenario_paths(model_folder: str, short_names: list[str]) -> dict[str, Path]
     paths = {}
     for short_name in short_names:
         scenario_name = SHORT_TO_SCENARIO[short_name]
-        path = PROJECT_ROOT / "ltm_output" / model_folder / scenario_name
-        if not path.exists():
-            logger.warning("Skipping missing scenario %s at %s", short_name, path)
+        path = PROJECT_ROOT / "ltm_processed" / model_folder / scenario_name
+        processed_path = processed_data_path(PROJECT_ROOT, model_folder, scenario_name)
+        if not processed_path.exists():
+            logger.warning("Skipping missing scenario %s at %s", short_name, processed_path)
             continue
         paths[scenario_name] = path
     return paths

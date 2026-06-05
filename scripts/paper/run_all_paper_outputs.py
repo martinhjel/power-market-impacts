@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Run the scripts that generate paper figures and tables.
+Run the processed-result scripts that generate the public paper figures.
 
 Prerequisites:
-  - scripts/process_ltm_results.py has been run for the selected model folder.
+  - ltm_processed/<model-folder>/<scenario>/processed_data.parquet exists.
 
 Most paper scripts still define MODEL_FOLDER as a module constant. This runner
 keeps those scripts unchanged by executing temporary same-directory copies with
@@ -45,59 +45,32 @@ class Task:
 
 
 TASKS: tuple[Task, ...] = (
-    Task(name="area_capacity_vs_load", script="scripts/plot_area_capacity_vs_load.py", stage="static", transform=False),
     Task(name="de_price_histogram", script="scripts/plot_de_price_histogram.py", stage="static", transform=False),
-    Task(
-        name="scenario_table",
-        script="scripts/paper/generate_scenario_table.py",
-        stage="tables",
-        description="Scenario overview LaTeX tables.",
-    ),
-    Task(
-        name="fuel_costs",
-        script="scripts/paper/compute_fuel_costs_by_technology.py",
-        stage="tables",
-        args=("--output-dir", "{paper_output_dir}"),
-        transform=False,
-        description="Fuel cost CSV and LaTeX table.",
-    ),
-    Task(
-        name="profiles",
-        script="scripts/paper/plot_offshore_wind_profiles.py",
-        stage="figures",
-        rewrite_visualizations_paper=True,
-        description="Offshore wind, nuclear, and load profile figure.",
-    ),
     Task(name="reservoir_trajectory", script="scripts/paper/plot_reservoir_trajectory.py", stage="figures"),
-    Task(name="reservoir_trajectory_area", script="scripts/paper/plot_reservoir_trajectory_area.py", stage="figures"),
-    Task(name="price_statistics", script="scripts/paper/plot_price_statistics.py", stage="figures"),
-    Task(name="price_mean_std", script="scripts/paper/plot_price_mean_std.py", stage="figures"),
     Task(name="price_mean_std_uprate", script="scripts/paper/plot_price_mean_std_uprate.py", stage="figures"),
     Task(name="hydro_uprate_areas", script="scripts/paper/plot_hydro_uprate_areas.py", stage="figures_tables"),
-    Task(name="reservoir_spillage", script="scripts/paper/compute_reservoir_spillage.py", stage="tables"),
-    Task(name="curtailment", script="scripts/paper/calculate_curtailment.py", stage="tables"),
     Task(
         name="hydro_uprate_value_factor",
         script="scripts/paper/calculate_hydro_uprate_value_factor.py",
         stage="figures",
     ),
     Task(
-        name="uprated_hydro_duration_baseline",
+        name="uprated_hydro_duration_ba_selected",
         script="scripts/paper/plot_uprated_hydro_plant_duration.py",
         stage="figures",
-        args=("--model-folder", "{model_folder}", "--scenario-set", "baseline"),
-        transform=False,
-    ),
-    Task(
-        name="uprated_hydro_duration_ba",
-        script="scripts/paper/plot_uprated_hydro_plant_duration.py",
-        stage="figures",
-        args=("--model-folder", "{model_folder}", "--scenario-set", "ba"),
+        args=(
+            "--model-folder",
+            "{model_folder}",
+            "--scenario-set",
+            "ba",
+            "--plants",
+            "roeldal",
+            "mauranger",
+            "kvanndal",
+        ),
         transform=False,
     ),
     Task(name="price_duration_smr_lmr", script="scripts/paper/plot_price_duration_smr_lmr.py", stage="figures"),
-    Task(name="economic_surplus_process", script="scripts/paper/economic_surplus_process.py", stage="surplus"),
-    Task(name="economic_surplus_plot", script="scripts/paper/economic_surplus_plot.py", stage="surplus"),
     Task(name="smr_lmr_surplus", script="scripts/paper/visualize_smr_lmr_surplus.py", stage="surplus"),
     Task(
         name="nuclear_offshore_revenue",
@@ -105,24 +78,6 @@ TASKS: tuple[Task, ...] = (
         stage="revenue",
     ),
     Task(name="smr_lmr_revenue", script="scripts/paper/plot_revenue.py", stage="revenue"),
-    Task(name="offshore_wind_revenue_capex", script="scripts/paper/plot_offshore_wind_revenue_capex.py", stage="revenue"),
-    Task(name="capex_breakeven", script="scripts/paper/plot_capex_breakeven.py", stage="revenue"),
-    Task(
-        name="price_map",
-        script="scripts/paper/plot_price_map.py",
-        stage="optional",
-        optional=True,
-        default_enabled=False,
-        description="Optional Plotly map; PDF export may require kaleido/chrome.",
-    ),
-    Task(
-        name="reservoir_trajectory_plotly",
-        script="scripts/paper/plot_reservoir_trajectory_plotly.py",
-        stage="optional",
-        optional=True,
-        default_enabled=False,
-        description="Optional Plotly reservoir trajectory figure.",
-    ),
 )
 
 
@@ -136,12 +91,13 @@ def read_config_model_folder() -> str:
 
 
 def discover_scenarios(model_folder: str) -> dict[str, str]:
-    root = PROJECT_ROOT / "ltm_output" / model_folder
+    root = PROJECT_ROOT / "ltm_processed" / model_folder
     if not root.exists():
-        raise FileNotFoundError(f"Model folder not found: {root}")
+        raise FileNotFoundError(f"Processed model folder not found: {root}")
     scenarios = {}
     for path in sorted(root.iterdir()):
-        if path.is_dir() and (path / "run_folder" / "emps").exists():
+        has_processed_result = (path / "processed_data.parquet").exists()
+        if path.is_dir() and has_processed_result:
             scenarios[path.name] = path.name
     if not scenarios:
         raise RuntimeError(f"No scenario folders found under {root}")
@@ -254,7 +210,7 @@ def parse_args() -> argparse.Namespace:
               python scripts/paper/run_all_paper_outputs.py --model-folder PowerGamaMSc_2025_BM_1H_serial_TrueEXO_load_imp_nuke
               python scripts/paper/run_all_paper_outputs.py --list
               python scripts/paper/run_all_paper_outputs.py --only revenue surplus --workers 4
-              python scripts/paper/run_all_paper_outputs.py --skip optional --include-optional
+              python scripts/paper/run_all_paper_outputs.py --only figures
             """
         ),
     )

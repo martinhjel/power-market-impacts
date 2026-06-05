@@ -158,7 +158,10 @@ def _compute_pairwise_spearman_rows() -> list[dict]:
     rows = []
     pairs = _scenario_pairs_for_spearman_table()
     needed_short = sorted({s for p in pairs for s in p})
-    scenario_paths = {SHORT_TO_SCENARIO[s]: base_path / f"ltm_output/{MODEL_FOLDER}/{SHORT_TO_SCENARIO[s]}" for s in needed_short}
+    scenario_paths = {
+        SHORT_TO_SCENARIO[s]: base_path / f"ltm_processed/{MODEL_FOLDER}/{SHORT_TO_SCENARIO[s]}"
+        for s in needed_short
+    }
     scenarios = load_scenarios(scenario_paths)
 
     short_to_loaded = {short: scenarios.get(long_name) for short, long_name in SHORT_TO_SCENARIO.items() if long_name in scenarios}
@@ -233,7 +236,10 @@ def _compute_hydro_percentile_diff_rows_for_pairs(
 
     rows = []
     needed_short = sorted({s for p in pairs for s in p})
-    scenario_paths = {SHORT_TO_SCENARIO[s]: base_path / f"ltm_output/{MODEL_FOLDER}/{SHORT_TO_SCENARIO[s]}" for s in needed_short}
+    scenario_paths = {
+        SHORT_TO_SCENARIO[s]: base_path / f"ltm_processed/{MODEL_FOLDER}/{SHORT_TO_SCENARIO[s]}"
+        for s in needed_short
+    }
     scenarios = load_scenarios(scenario_paths)
     short_to_loaded = {short: scenarios.get(long_name) for short, long_name in SHORT_TO_SCENARIO.items() if long_name in scenarios}
 
@@ -347,7 +353,7 @@ def _save_comparison_bundle(
     file_stem: str,
     price_ylim: tuple[float, float] = (0, 200),
 ) -> None:
-    scenario_paths = {name: base_path / f"ltm_output/{MODEL_FOLDER}/{name}" for name in scenario_names}
+    scenario_paths = {name: base_path / f"ltm_processed/{MODEL_FOLDER}/{name}" for name in scenario_names}
     scenarios = load_scenarios(scenario_paths)
 
     if not scenarios:

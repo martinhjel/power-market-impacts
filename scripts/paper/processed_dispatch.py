@@ -71,7 +71,7 @@ def load_processed_dispatch_data(
         if missing:
             raise RuntimeError(
                 f"{scenario.data_path} is missing processed market-step technology columns "
-                f"{missing}. Re-run scripts/process_ltm_results.py with --overwrite."
+                f"{missing}. Use the Zenodo processed-data archive that matches this script version."
             )
 
     selected_areas = list(areas) if areas is not None else scenario.get_busbar_names()

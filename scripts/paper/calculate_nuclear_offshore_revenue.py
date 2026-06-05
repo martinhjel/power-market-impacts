@@ -26,6 +26,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from scripts.common import logger
 from scripts.paper.processed_dispatch import load_processed_dispatch_data
+from scripts.processed_results import processed_data_path
 
 # Set logger level to DEBUG to see debug messages
 logger.setLevel(logging.DEBUG)
@@ -101,7 +102,7 @@ if base_path.name == "paper":
 elif base_path.name == "scripts":
     base_path = base_path.parent
 
-ltm_output_path = base_path / "ltm_output" / MODEL_FOLDER
+processed_output_path = base_path / "ltm_processed" / MODEL_FOLDER
 output_path = base_path / OUTPUT_DIR / MODEL_FOLDER / "paper"
 output_path.mkdir(parents=True, exist_ok=True)
 
@@ -245,10 +246,11 @@ def _breakeven_capex_fid_per_kw(
 
 # Process each scenario
 for scenario_label, scenario_name in SCENARIOS.items():
-    scenario_path = ltm_output_path / scenario_name
+    scenario_path = processed_output_path / scenario_name
+    processed_path = processed_data_path(base_path, MODEL_FOLDER, scenario_name)
 
-    if not scenario_path.exists():
-        logger.warning(f"Scenario path does not exist: {scenario_path}")
+    if not processed_path.exists():
+        logger.warning(f"Scenario processed data does not exist: {processed_path}")
         continue
 
     data = _load_processed_dispatch_data(scenario_path)
