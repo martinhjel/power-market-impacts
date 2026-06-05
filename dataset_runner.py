@@ -15,6 +15,14 @@ from dataset_adjuster import (
     update_feedback_factors,
     uprate_hydropower,
 )
+from nuclear_modeling import (
+    HISTORIC_NUCLEAR_PROFILE_PATH,
+    IMPROVE_NUCLEAR_REP,
+    NEW_NUCLEAR_FIRM_SHARE,
+    NEW_NUCLEAR_MARGINAL_COST,
+    NEW_NUCLEAR_PROFILE_PATH,
+    improved_nuclear_output_suffix,
+)
 
 __all__ = ["LoadMode", "run_dataset"]
 
@@ -105,6 +113,8 @@ def run_dataset(
     dataset_folder: Path | None = None,
     dataset_file: Path | None = None,
     renewables_profile_path: Path | str = Path("data/renewables_profiles.parquet"),
+    improve_nuclear_rep: bool = IMPROVE_NUCLEAR_REP,
+    new_nuclear_firm_share: float = NEW_NUCLEAR_FIRM_SHARE,
 ) -> Path:
     """Run a single dataset adjustment and simulation."""
 
@@ -115,7 +125,11 @@ def run_dataset(
     if dataset_folder is None:
         dataset_folder = (
             Path.cwd()
-            / f"ltm_output/{model_name}_{dataset_year}_{dataset_scenario}_{resolution}_{simulation_type}_{use_exogenous_prices}EXO_load/"
+            / (
+                f"ltm_output/{model_name}_{dataset_year}_{dataset_scenario}_{resolution}_"
+                f"{simulation_type}_{use_exogenous_prices}EXO_load"
+                f"{improved_nuclear_output_suffix(improve_nuclear_rep)}/"
+            )
         )
     dataset_folder.mkdir(parents=True, exist_ok=True)
 
@@ -165,7 +179,14 @@ def run_dataset(
         node = nuclear_entry["area"]
         capacity = nuclear_entry["capacity"]
         price = nuclear_entry.get("price", 9)
-        add_nuclear(config=config, node=node, capacity=capacity, price=price)
+        add_nuclear(
+            config=config,
+            node=node,
+            capacity=capacity,
+            price=price,
+            improve_nuclear_rep=improve_nuclear_rep,
+            firm_share=new_nuclear_firm_share,
+        )
 
     if do_update_feedback_factors:
         update_feedback_factors(config)
@@ -207,15 +228,25 @@ def run_dataset(
         _logger.removeHandler(file_handler)
         file_handler.close()
 
-    config.run(
-        destination_folder=destination_folder,
-        resolution=resolution,
-        clear_destination_folder=clear_destination_folder,
-        dry_run=dry_run,
-        verbose=verbose,
-        convert_large_timeseries_to_hdf5=convert_large_timeseries_to_hdf5,
-        export_detailed_results=export_detailed_results,
-    )
+    try:
+        config.run(
+            destination_folder=destination_folder,
+            resolution=resolution,
+            clear_destination_folder=clear_destination_folder,
+            dry_run=dry_run,
+            verbose=verbose,
+            convert_large_timeseries_to_hdf5=convert_large_timeseries_to_hdf5,
+            export_detailed_results=export_detailed_results,
+        )
+    except Exception:
+        failure_handler = logging.FileHandler(str(destination_folder / "log.log"), mode="a")
+        failure_handler.setLevel(logging.INFO)
+        failure_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+        _logger.addHandler(failure_handler)
+        _logger.exception("Scenario failed during config.run")
+        _logger.removeHandler(failure_handler)
+        failure_handler.close()
+        raise
 
     # Reopen the log file handler in append mode to continue logging
     file_handler = logging.FileHandler(str(destination_folder / "log.log"), mode="a")
@@ -224,6 +255,20 @@ def run_dataset(
     _logger.addHandler(file_handler)
 
     _logger.info(f"Scenario complete. Results written to {destination_folder}")
+
+    run_config = {
+        "scenario_name": scenario_name,
+        "improve_nuclear_rep": improve_nuclear_rep,
+        "historic_nuclear_profile": HISTORIC_NUCLEAR_PROFILE_PATH,
+        "new_nuclear_profile": NEW_NUCLEAR_PROFILE_PATH,
+        "new_nuclear_firm_share": new_nuclear_firm_share if improve_nuclear_rep else 0.0,
+        "new_nuclear_flexible_share": 1.0 - (new_nuclear_firm_share if improve_nuclear_rep else 0.0),
+        "new_nuclear_marginal_cost": sorted({entry.get("price", NEW_NUCLEAR_MARGINAL_COST) for entry in nuclear_additions}),
+        "nuclear_market_step_capacity_scenario_independent": True,
+    }
+    with open(destination_folder / "config.txt", "w") as f:
+        for key, value in run_config.items():
+            f.write(f"{key}: {value}\n")
 
     # Clean up handler at the end
     _logger.removeHandler(file_handler)
@@ -236,45 +281,11 @@ if __name__ == "__main__":
     # run_dataset(scenario_name="default")
 
     run_dataset(
-        scenario_name="test",
+        scenario_name="fixed_nuclear",
         resolution="1H",
         load_mode=LoadMode.LLPS,
         new_yearly_load_twh=20.0,
         do_uprate_hydropower=False,
-        # nuclear_additions=[{"area": "NO2", "capacity": 499, "price": 9}],
+        nuclear_additions=[{"area": "NO2", "capacity": 499, "price": 9}],
         n_cpu=1,
     )
-
-def delme():
-    
-    from dataset_adjuster import format_plant, format_reservoir
-    
-    resolution: str = "1D"
-    dataset_year: int = 2025
-    dataset_scenario: str = "BM"
-    model_name: str = "PowerGamaMSc"
-    simulation_type: str = "serial"
-    use_exogenous_prices: bool = True
-    
-    dataset_folder = (
-        Path.cwd()
-        / f"ltm_output/{model_name}_{dataset_year}_{dataset_scenario}_{resolution}_{simulation_type}_{use_exogenous_prices}EXO_load/"
-    )
-
-    dataset_file = dataset_folder / "dataset.json"
-    
-    config = EMPSModelBuilder.from_json(filepath=dataset_file)
-    
-    for r in config.reservoirs.find("alta"):
-        print(format_reservoir(r))
-        
-    plants = config.plants.find("alta")
-    for p in plants:
-        print(format_plant(p))
-        
-    plant = plants[0]
-    plant.max_discharge_curve
-    
-    format_plant(plant)
-    plant.max_discharge_curve
-    

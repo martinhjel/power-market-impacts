@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import List
 
 from dataset_runner import LoadMode, run_dataset
+from nuclear_modeling import IMPROVE_NUCLEAR_REP
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,7 @@ class ScenarioConfig:
     update_feedback_factors: bool = False
     nuclear_additions: List[dict] = field(default_factory=list)
     offshore_wind_additions: List[dict] = field(default_factory=list)
+    improve_nuclear_rep: bool = IMPROVE_NUCLEAR_REP
 
 
 SCENARIOS: List[ScenarioConfig] = [
@@ -76,6 +79,20 @@ SCENARIOS: List[ScenarioConfig] = [
         uprate_hydro=False,
         nuclear_additions=[],
         offshore_wind_additions=[],
+    ),
+        ScenarioConfig(
+        name="BASELINE_23TWh_BA",
+        resolution="1H",
+        load_mode=LoadMode.BA,
+        additional_load_twh=22.910413440000003,
+        uprate_hydro=False
+    ),
+    ScenarioConfig(
+        name="BASELINE_23TWh_LLPS",
+        resolution="1H",
+        load_mode=LoadMode.LLPS,
+        additional_load_twh=22.910413440000003,
+        uprate_hydro=False
     ),
     ScenarioConfig(
         name="BASELINE_UPRATE",
@@ -551,6 +568,48 @@ SCENARIOS: List[ScenarioConfig] = [
 ]
 
 
+INCOMPLETE_SCENARIO_NAMES = [
+    "LLPS_N",
+    "LLPS_OWN",
+    "BA_N",
+    "BA_OWN",
+    "LLPS_N_UPRATE",
+    "LLPS_OWN_UPRATE",
+    "BA_N_UPRATE",
+    "BA_OWN_UPRATE",
+    "SMR300BA_30TWh",
+    "SMR600BA_30TWh",
+    "SMR900BA_30TWh",
+    "SMR1200BA_30TWh",
+    "SMR1600BA_30TWh",
+    "LMR2000BA_30TWh",
+    "LMR3000BA_30TWh",
+    "LMR4000BA_30TWh",
+    "SMR300LLPS_30TWh",
+    "SMR600LLPS_30TWh",
+    "SMR900LLPS_30TWh",
+    "SMR1200LLPS_30TWh",
+    "SMR1600LLPS_30TWh",
+    "LMR2000LLPS_30TWh",
+    "LMR3000LLPS_30TWh",
+    "LMR4000LLPS_30TWh",
+]
+
+
+def select_scenarios(names: List[str]) -> List[ScenarioConfig]:
+    selected = []
+    missing = []
+    for name in names:
+        matches = [scenario for scenario in SCENARIOS if scenario.name == name]
+        if matches:
+            selected.extend(matches)
+        else:
+            missing.append(name)
+    if missing:
+        raise ValueError(f"Unknown scenario names: {', '.join(missing)}")
+    return selected
+
+
 def run_single_scenario(scenario):
     logger.info("Running scenario %s", scenario.name)
     try:
@@ -563,6 +622,7 @@ def run_single_scenario(scenario):
             do_update_feedback_factors=scenario.update_feedback_factors,
             nuclear_additions=scenario.nuclear_additions,
             offshore_wind_additions=scenario.offshore_wind_additions,
+            improve_nuclear_rep=scenario.improve_nuclear_rep,
         )
         logger.info("Scenario %s completed. Results in %s", scenario.name, destination)
         return (scenario.name, destination)
@@ -571,17 +631,74 @@ def run_single_scenario(scenario):
         return (scenario.name, exc)
 
 
-def run_scenarios_parallel(max_workers=None):
+def run_scenarios_parallel(scenarios=None, max_workers=None):
+    scenarios = list(scenarios or SCENARIOS)
     results = []
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        future_to_scenario = {executor.submit(run_single_scenario, scenario): scenario for scenario in SCENARIOS}
+        future_to_scenario = {executor.submit(run_single_scenario, scenario): scenario for scenario in scenarios}
         for future in as_completed(future_to_scenario):
             result = future.result()
             results.append(result)
     return results
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run EMPS scenario batches.")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Number of scenario processes to run in parallel.",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run every scenario instead of only the incomplete retry set.",
+    )
+    parser.add_argument(
+        "--only",
+        nargs="+",
+        help="Run a custom list of scenario names.",
+    )
+    parser.add_argument(
+        "--improve-nuclear-rep",
+        action="store_true",
+        help=(
+            "Use improved nuclear representation: base nuclear is firm with the historic profile, "
+            "and added nuclear is 60 percent firm / 40 percent price-dependent. Without this flag all nuclear "
+            "uses the new nuclear profile and is price-dependent."
+        ),
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    n_procs = 8
-    results = run_scenarios_parallel(max_workers=n_procs)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    args = parse_args()
+
+    if args.only:
+        scenarios_to_run = select_scenarios(args.only)
+    elif args.all:
+        scenarios_to_run = SCENARIOS
+    else:
+        scenarios_to_run = select_scenarios(INCOMPLETE_SCENARIO_NAMES)
+
+    if args.improve_nuclear_rep:
+        for scenario in scenarios_to_run:
+            scenario.improve_nuclear_rep = True
+
+    logger.info(
+        "Running %s scenarios with %s workers. improve_nuclear_rep=%s",
+        len(scenarios_to_run),
+        args.workers,
+        args.improve_nuclear_rep,
+    )
+    results = run_scenarios_parallel(scenarios=scenarios_to_run, max_workers=args.workers)
+    failures = [(name, result) for name, result in results if isinstance(result, Exception)]
+    if failures:
+        print("Failed scenarios:")
+        for name, exc in failures:
+            print(f"  {name}: {exc}")
+        raise SystemExit(1)
+
     print("Finished:", results)

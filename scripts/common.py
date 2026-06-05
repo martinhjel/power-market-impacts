@@ -2,20 +2,18 @@
 Common utilities and classes for EMPS visualization scripts.
 """
 
-import datetime
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# Central European Time (UTC+1, winter/standard time).
-# Replaces lpr_sintef_bifrost.utils.time.CET_winter so scripts work without
-# the simulation library installed.
-CET_winter = datetime.timezone(datetime.timedelta(hours=1))
+try:
+    from scripts.processed_results import ProcessedScenarioResults, df_from_ltm_result
+except ModuleNotFoundError:
+    from processed_results import ProcessedScenarioResults, df_from_ltm_result
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -122,11 +120,14 @@ class ScenarioStyler:
 class ScenarioResults:
     """Load and cache EMPS simulation results."""
 
-    def __init__(self, result_path: Path):
+    def __init__(self, result_path: Path, prefer_processed: bool = True):
         self.result_path = Path(result_path)
         self.name = self.result_path.name
         self._session = None
         self._model = None
+        self._processed = ProcessedScenarioResults.from_result_path(self.result_path) if prefer_processed else None
+        if self._processed is not None:
+            logger.info(f"Using processed result data for {self.name}: {self._processed.data_path}")
 
     @property
     def session(self):
@@ -149,146 +150,141 @@ class ScenarioResults:
         return {p.name: p for p in self.model.plants()}
 
     def get_prices_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+        if self._processed is not None:
+            return self._processed.get_prices_for_busbar(busbar_name)
 
         busbars = self.get_busbars()
         if busbar_name not in busbars:
             raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_pyltm_result(busbars[busbar_name].market_result_price())
+        return df_from_ltm_result(busbars[busbar_name].market_result_price())
 
     def get_hydro_production_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+        if self._processed is not None:
+            return self._processed.get_hydro_production_for_busbar(busbar_name)
 
         busbars = self.get_busbars()
         if busbar_name not in busbars:
             raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_pyltm_result(busbars[busbar_name].sum_hydro_production())
+        return df_from_ltm_result(busbars[busbar_name].sum_hydro_production())
 
     def get_reservoir_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+        if self._processed is not None:
+            return self._processed.get_reservoir_for_busbar(busbar_name)
 
         busbars = self.get_busbars()
         if busbar_name not in busbars:
             raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_pyltm_result(busbars[busbar_name].sum_reservoir())
+        return df_from_ltm_result(busbars[busbar_name].sum_reservoir())
 
     def get_load_for_busbar(self, busbar_name: str) -> pd.DataFrame:
-        from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+        if self._processed is not None:
+            return self._processed.get_load_for_busbar(busbar_name)
 
         busbars = self.get_busbars()
         if busbar_name not in busbars:
             raise KeyError(f"Busbar {busbar_name} not found")
-        return df_from_pyltm_result(busbars[busbar_name].sum_load())
+        return df_from_ltm_result(busbars[busbar_name].sum_load())
+
+    def get_market_steps_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_market_steps_for_busbar(busbar_name)
+
+        busbars = self.get_busbars()
+        if busbar_name not in busbars:
+            raise KeyError(f"Busbar {busbar_name} not found")
+        return df_from_ltm_result(busbars[busbar_name].sum_production_from_market_steps())
+
+    def get_solar_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_solar_for_busbar(busbar_name)
+        raise KeyError(f"Processed solar data not found for {busbar_name}")
+
+    def get_onshore_wind_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_onshore_wind_for_busbar(busbar_name)
+        raise KeyError(f"Processed onshore wind data not found for {busbar_name}")
+
+    def get_offshore_wind_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_offshore_wind_for_busbar(busbar_name)
+        raise KeyError(f"Processed offshore wind data not found for {busbar_name}")
+
+    def get_fixed_nuclear_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_fixed_nuclear_for_busbar(busbar_name)
+        raise KeyError(f"Processed fixed nuclear data not found for {busbar_name}")
+
+    def get_historic_nuclear_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_historic_nuclear_for_busbar(busbar_name)
+        raise KeyError(f"Processed historic nuclear data not found for {busbar_name}")
+
+    def get_historic_nuclear_available_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_historic_nuclear_available_for_busbar(busbar_name)
+        raise KeyError(f"Processed historic nuclear available data not found for {busbar_name}")
+
+    def get_new_nuclear_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_new_nuclear_for_busbar(busbar_name)
+        raise KeyError(f"Processed new nuclear data not found for {busbar_name}")
+
+    def get_new_nuclear_available_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_new_nuclear_available_for_busbar(busbar_name)
+        raise KeyError(f"Processed new nuclear available data not found for {busbar_name}")
+
+    def get_total_nuclear_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_total_nuclear_for_busbar(busbar_name)
+        raise KeyError(f"Processed total nuclear data not found for {busbar_name}")
+
+    def get_total_nuclear_available_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_total_nuclear_available_for_busbar(busbar_name)
+        raise KeyError(f"Processed total nuclear available data not found for {busbar_name}")
+
+    def get_reservoir_spill_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_reservoir_spill_for_busbar(busbar_name)
+        raise KeyError(f"Processed reservoir spill data not found for {busbar_name}")
+
+    def get_reservoir_discharge_for_busbar(self, busbar_name: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_reservoir_discharge_for_busbar(busbar_name)
+        raise KeyError(f"Processed reservoir discharge data not found for {busbar_name}")
+
+    def get_reservoir_production(self, entity: str) -> pd.DataFrame:
+        if self._processed is not None:
+            return self._processed.get_reservoir_production(entity)
+        raise KeyError(f"Processed reservoir production not found for {entity}")
+
+    def get_busbar_names(self) -> list[str]:
+        if self._processed is not None:
+            return self._processed.get_busbar_names()
+        return sorted(self.get_busbars())
 
     def get_dclines(self) -> Dict[str, any]:
+        if self._processed is not None:
+            names = self._processed.get_dcline_names()
+            return {name: None for name in names}
         return {dcline.name: dcline for dcline in self.model.dclines()}
 
+    def get_dcline_names(self) -> list[str]:
+        if self._processed is not None:
+            return self._processed.get_dcline_names()
+        return sorted(self.get_dclines())
+
     def get_dcline_flow(self, dcline_name: str) -> pd.DataFrame:
-        from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result
+        if self._processed is not None:
+            return self._processed.get_dcline_flow(dcline_name)
 
         dclines = self.get_dclines()
         if dcline_name not in dclines:
             raise KeyError(f"DC line {dcline_name} not found")
-        return df_from_pyltm_result(dclines[dcline_name].transmission_results())
-
-
-def df_from_pyltm_result(result) -> pd.DataFrame:
-    """
-    Convert an LTM result object to a DataFrame.
-
-    If the result is already a DataFrame (returned by CachedBusbar / CachedReservoir),
-    it is passed through unchanged. Otherwise the lpr_sintef_bifrost converter is used.
-    This allows plotting scripts to work with both live LTM sessions and cached parquet
-    data without modification.
-    """
-    if isinstance(result, pd.DataFrame):
-        return result
-    from lpr_sintef_bifrost.utils.dataframe import df_from_pyltm_result as _ltm_convert
-    return _ltm_convert(result)
-
-
-# ---------------------------------------------------------------------------
-# Cached result classes — read from processed/ parquet files produced by
-# extract_results.py. Provide the same interface as the live LTM objects so
-# plotting scripts need no changes beyond swapping the import of
-# df_from_pyltm_result and pointing load_scenarios() at processed/ paths.
-# ---------------------------------------------------------------------------
-
-class CachedReservoir:
-    """Proxy for an LTM reservoir object backed by parquet files."""
-
-    def __init__(self, path: Path, name: str):
-        self._path = Path(path)
-        self.name = name
-
-    def reservoir(self, time_axis: bool = True) -> pd.DataFrame:
-        return pd.read_parquet(self._path / "content.parquet")
-
-    def spill(self, time_axis: bool = True) -> pd.DataFrame:
-        return pd.read_parquet(self._path / "spill.parquet")
-
-    def discharge(self, time_axis: bool = True) -> pd.DataFrame:
-        return pd.read_parquet(self._path / "discharge.parquet")
-
-    def production(self, time_axis: bool = True) -> pd.DataFrame:
-        return pd.read_parquet(self._path / "production.parquet")
-
-
-class CachedBusbar:
-    """Proxy for an LTM busbar object backed by parquet files."""
-
-    def __init__(self, path: Path, name: str, reservoir_names: List[str]):
-        self._path = Path(path)
-        self.name = name
-        self._reservoir_names = reservoir_names
-
-    def market_result_price(self) -> pd.DataFrame:
-        return pd.read_parquet(self._path / "price.parquet")
-
-    def sum_load(self) -> pd.DataFrame:
-        return pd.read_parquet(self._path / "load.parquet")
-
-    def sum_hydro_production(self) -> pd.DataFrame:
-        return pd.read_parquet(self._path / "hydro_production.parquet")
-
-    def sum_reservoir(self) -> pd.DataFrame:
-        return pd.read_parquet(self._path / "reservoir_agg.parquet")
-
-    def reservoirs(self) -> List[CachedReservoir]:
-        return [
-            CachedReservoir(self._path / "reservoirs" / name, name)
-            for name in self._reservoir_names
-        ]
-
-
-class CachedScenarioResults:
-    """
-    Drop-in replacement for ScenarioResults that reads from parquet files
-    produced by extract_results.py instead of live LTM simulation output.
-    Does not require lpr_sintef_bifrost to be installed.
-    """
-
-    def __init__(self, processed_path: Path):
-        self._path = Path(processed_path)
-        self.name = self._path.name
-        self._metadata: dict | None = None
-
-    @property
-    def metadata(self) -> dict:
-        if self._metadata is None:
-            with open(self._path / "metadata.json") as f:
-                self._metadata = json.load(f)
-        return self._metadata
-
-    def get_busbars(self) -> Dict[str, CachedBusbar]:
-        return {
-            area: CachedBusbar(
-                self._path / area,
-                area,
-                info.get("reservoirs", []),
-            )
-            for area, info in self.metadata["busbars"].items()
-        }
+        if dclines[dcline_name] is None:
+            raise KeyError(f"Processed DC line {dcline_name} has no flow data")
+        return df_from_ltm_result(dclines[dcline_name].transmission_results())
 
 
 def add_grouped_legend(ax: plt.Axes, styler: ScenarioStyler):
@@ -307,36 +303,12 @@ def add_grouped_legend(ax: plt.Axes, styler: ScenarioStyler):
         )
 
 
-def load_scenarios(scenario_paths: Dict[str, Path]) -> Dict[str, "ScenarioResults | CachedScenarioResults"]:
-    """
-    Load scenario results from paths.
-
-    Auto-detects whether to use cached parquet data or live LTM output:
-    - If a path points directly to a processed/ folder (contains metadata.json),
-      CachedScenarioResults is used — no lpr_sintef_bifrost required.
-    - If a path points to ltm_output/, the corresponding processed/ path is
-      checked first (by substituting "ltm_output" -> "processed" in the path).
-    - Falls back to ScenarioResults (live LTM) if no processed data is found.
-    """
+def load_scenarios(scenario_paths: Dict[str, Path]) -> Dict[str, ScenarioResults]:
+    """Load scenario results from paths."""
     scenario_results = {}
     for scenario_name, scenario_path in scenario_paths.items():
-        scenario_path = Path(scenario_path)
         try:
-            # Check if path is already a processed directory
-            if (scenario_path / "metadata.json").exists():
-                logger.info(f"Loading cached {scenario_name}...")
-                scenario_results[scenario_name] = CachedScenarioResults(scenario_path)
-                continue
-
-            # Try the corresponding processed/ path
-            processed_path = Path(str(scenario_path).replace("ltm_output", "processed", 1))
-            if (processed_path / "metadata.json").exists():
-                logger.info(f"Loading cached {scenario_name}...")
-                scenario_results[scenario_name] = CachedScenarioResults(processed_path)
-                continue
-
-            # Fall back to live LTM
-            logger.info(f"Loading {scenario_name} from LTM...")
+            logger.info(f"Loading {scenario_name}...")
             scenario_results[scenario_name] = ScenarioResults(scenario_path)
         except Exception as e:
             logger.warning(f"Failed to load {scenario_name}: {e}")

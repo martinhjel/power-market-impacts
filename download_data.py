@@ -10,21 +10,22 @@ Requires: Python 3.8+, no third-party packages (uses stdlib only).
 
 import tarfile
 import urllib.request
+import zipfile
 from pathlib import Path
 
 # TODO: replace <record_id> with the actual Zenodo record ID after upload.
 # Format: https://zenodo.org/records/<record_id>/files/<filename>
 ARCHIVES = [
     {
-        "url": "https://zenodo.org/records/<record_id>/files/data.tar.gz",
-        "archive": Path("data.tar.gz"),
+        "url": "https://zenodo.org/records/<record_id>/files/data.zip",
+        "archive": Path("data.zip"),
         "target": Path("data"),
         "label": "input data",
     },
     {
-        "url": "https://zenodo.org/records/<record_id>/files/processed.tar.gz",
-        "archive": Path("processed.tar.gz"),
-        "target": Path("processed"),
+        "url": "https://zenodo.org/records/<record_id>/files/ltm_processed.tar.gz",
+        "archive": Path("ltm_processed.tar.gz"),
+        "target": Path("ltm_processed"),
         "label": "processed simulation results",
     },
     {
@@ -46,8 +47,7 @@ def download_and_extract(url: str, archive: Path, target: Path, label: str) -> N
     print()
 
     print(f"Extracting {archive} ...")
-    with tarfile.open(archive, "r:gz") as tar:
-        tar.extractall(".")
+    extract_archive(archive)
     print(f"Done. Extracted to '{target}'.")
 
     archive.unlink()
@@ -67,6 +67,20 @@ def _progress(block_num: int, block_size: int, total_size: int) -> None:
         mb = downloaded / 1024 ** 2
         total_mb = total_size / 1024 ** 2
         print(f"\r  {pct:.1f}%  ({mb:.0f} / {total_mb:.0f} MB)", end="", flush=True)
+
+
+def extract_archive(archive: Path) -> None:
+    if archive.suffix == ".zip":
+        with zipfile.ZipFile(archive) as zip_archive:
+            zip_archive.extractall(".")
+        return
+
+    if archive.suffixes[-2:] == [".tar", ".gz"] or archive.suffix == ".tgz":
+        with tarfile.open(archive, "r:gz") as tar:
+            tar.extractall(".")
+        return
+
+    raise ValueError(f"Unsupported archive format: {archive}")
 
 
 if __name__ == "__main__":

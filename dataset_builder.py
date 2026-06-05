@@ -25,6 +25,16 @@ from lpr_sintef_bifrost.utils.time import CET_winter
 from lpr_sintef_bifrost.utils.unit import Unit
 
 from data import PowerGamaDataLoader
+from nuclear_modeling import (
+    HISTORIC_NUCLEAR_PROFILE_PATH,
+    IMPROVE_NUCLEAR_REP as DEFAULT_IMPROVE_NUCLEAR_REP,
+    NEW_NUCLEAR_FIRM_SHARE,
+    NEW_NUCLEAR_MARGINAL_COST,
+    NEW_NUCLEAR_PROFILE_PATH,
+    add_historic_flexible_nuclear,
+    add_historic_nuclear,
+    improved_nuclear_output_suffix,
+)
 
 # %%
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -59,10 +69,15 @@ combined = True
 dataset_path = base_path / f"CASE_{dataset_year}/scenario_{dataset_scenario}/data/system"
 
 load_per_scenario = True
+IMPROVE_NUCLEAR_REP = True
 
 destination_folder = (
     Path.cwd()
-    / f"ltm_output/{model_name}_{dataset_year}_{dataset_scenario}_{resolution}_{simulation_type}_{use_exogenous_prices}EXO_load/"
+    / (
+        f"ltm_output/{model_name}_{dataset_year}_{dataset_scenario}_{resolution}_"
+        f"{simulation_type}_{use_exogenous_prices}EXO_load"
+        f"{improved_nuclear_output_suffix(IMPROVE_NUCLEAR_REP)}/"
+    )
 )
 destination_folder.mkdir(exist_ok=True, parents=True)
 
@@ -303,6 +318,7 @@ else:
 
 # %% Generators
 
+
 for idx, row in data_loader.generator.iterrows():
     desc = row["desc"]
 
@@ -337,20 +353,33 @@ for idx, row in data_loader.generator.iterrows():
                 enforce_scenario_dimensions=True,
             ),
         )
-        
-        _logger.info(f"Adding MarketStep for {row['node']} and type {row['type']}")
+
+        _logger.info(f"Adding {obj_type} for {row['node']} and type {row['type']}")
         config.add(market_step)
         config.connect(to_obj=busbars_obj[row["node"]], from_obj=market_step)
 
     elif row["type"] in (["biomass", "fossil_gas", "fossil_other", "nuclear"]):
         if row["type"] == "nuclear":
-            df_nuclear_profile = pd.read_parquet("data/historic_nuclear_profile.parquet")
-            market_step = MarketStep(
-                name=desc,
-                capacity=TimeSeries(value=row["pmax"] * df_nuclear_profile, unit=Unit.MW),
-                price=TimeSeries(config=ConstantTimeseriesConfig(value=row["fuelcost"]), unit=Unit.EUR_MWH),
-                fuel_type=row["type"],
-            )
+            if IMPROVE_NUCLEAR_REP:
+                add_historic_nuclear(
+                    config=config,
+                    node=row["node"],
+                    capacity=row["pmax"],
+                    logger=_logger,
+                )
+                _logger.info(f"Adding firm historic nuclear for {row['node']} as Wind object")
+            else:
+                add_historic_flexible_nuclear(
+                    config=config,
+                    node=row["node"],
+                    capacity=row["pmax"],
+                    price=row.get("fuelcost", NEW_NUCLEAR_MARGINAL_COST),
+                    logger=_logger,
+                )
+                _logger.info(
+                    f"Adding price-dependent historic nuclear for {row['node']} using new nuclear profile"
+                )
+            continue
 
         else:
             market_step = MarketStep(
@@ -360,7 +389,7 @@ for idx, row in data_loader.generator.iterrows():
                 fuel_type=row["type"],
             )
 
-        _logger.info(f"Adding MarketStep for {row['node']} and type {row['type']}")
+            _logger.info(f"Adding generator for {row['node']} and type {row['type']}")
         config.add(market_step)
         config.connect(to_obj=busbars_obj[row["node"]], from_obj=market_step)
 
@@ -563,8 +592,9 @@ config.reservoirs["byglandsfjord"].max_volume_curve = None
 
 # %% Allow negative residual load
 
-_logger.warning("Allowing validation failures")
-config.global_settings.allow_validation_failures = True
+if False:
+    _logger.warning("Allowing validation failures")
+    config.global_settings.allow_validation_failures = True
 
 # %% Save model
 
@@ -581,96 +611,18 @@ run_config = {
     "resolution": resolution,
     "simulation_type": simulation_type,
     "use_exogenous_prices": use_exogenous_prices,
+    "improve_nuclear_rep": IMPROVE_NUCLEAR_REP,
+    "base_nuclear_profile": HISTORIC_NUCLEAR_PROFILE_PATH if IMPROVE_NUCLEAR_REP else NEW_NUCLEAR_PROFILE_PATH,
+    "base_nuclear_price_dependent": not IMPROVE_NUCLEAR_REP,
+    "historic_nuclear_profile": HISTORIC_NUCLEAR_PROFILE_PATH,
+    "new_nuclear_profile": NEW_NUCLEAR_PROFILE_PATH,
+    "new_nuclear_firm_share": NEW_NUCLEAR_FIRM_SHARE if IMPROVE_NUCLEAR_REP else 0.0,
+    "new_nuclear_flexible_share": 1.0 - (NEW_NUCLEAR_FIRM_SHARE if IMPROVE_NUCLEAR_REP else 0.0),
+    "new_nuclear_marginal_cost": NEW_NUCLEAR_MARGINAL_COST,
+    "nuclear_market_step_capacity_scenario_independent": True,
 }
 
 _logger.info("Writing run config file.")
 with open(destination_folder / "config.txt", "w") as f:
     for key, value in run_config.items():
         f.write(f"{key}: {value}\n")
-
-
-# %% DELME
-
-
-def delme():
-    dfs_load.keys()
-
-    dfs_ren.keys()
-
-    calibraion_areas = "DK", "EE", "FI", "NO", "SE"
-
-    for calib_area in calibraion_areas:
-        print(f"Market calibration area: {calib_area}")
-        for i, area in enumerate(market_calibration_areas[calib_area]):
-            if i == 0:
-                df_residual = dfs_load[area] - dfs_ren[area]
-            else:
-                df_residual += dfs_load[area] - dfs_ren[area]
-
-        df_residual.plot(title=f"Residual load profile for {calib_area}", figsize=(12, 6))
-        plt.show()
-
-    dfs_curtail = {}
-    for area in dfs_load:
-        df_residual = dfs_load[area] - dfs_ren[area]
-        dfs_curtail[area] = -df_residual.clip(upper=0)
-
-        df_residual.plot(title=f"Residual load profile for {area}", figsize=(12, 6))
-        plt.show()
-
-    dfs_curtail["EE"].plot()
-    dfs_curtail["EE"].min().min()
-
-    for area in dfs_curtail:
-        print(f"{area}: Max curtailment {dfs_curtail[area].mean().mean():.2f} MW")
-
-    dfs_curtail["DK1"].plot()
-    dfs_residual["DK1"].plot()
-
-    dfs_load["SE2"].plot()
-    dfs_ren["SE2"].plot()
-
-    dfs_curtail["SE2"].mean(axis=1).plot()
-
-    dfs_curtail["SE2"].resample("7D").sum().plot()
-    dfs_curtail["SE2"].plot()
-
-    df_load = pd.DataFrame(
-        data=df_load_profiles["load_SE2"].values[: len(simulation_time_index)], index=simulation_time_index
-    )
-
-    data_loader.consumer
-
-    (1722.844337 * df_load).iloc[:1000, :].plot()
-
-    dfs_load["SE2"].iloc[:1000, 0].plot()
-
-    dfs_load_prev = {}
-    for idx, row in data_loader.consumer.iterrows():
-        df_load = pd.DataFrame(
-            data=df_load_profiles[row["demand_ref"]].values[: len(simulation_time_index)], index=simulation_time_index
-        )
-        df_load = df_load * row["demand_avg"]
-        values_30 = np.tile(df_load.values, (1, 30))
-        dfs_load_prev[row["node"]] = pd.DataFrame(
-            data=values_30, index=df_load.index, columns=range(start_scenario_year, end_scenario_year + 1)
-        )
-
-    dfs_curtail_prev = {}
-    dfs_residual = {}
-    for area in dfs_load_prev:
-        if area in ["NO1", "NO2", "NO3", "NO4", "NO5", "SE1", "SE2", "SE3", "SE4", "FI", "DK1", "DK2", "EE", "LT"]:
-            df_residual = dfs_load_prev[area] - dfs_ren[area]
-            dfs_residual[area] = df_residual
-            dfs_curtail_prev[area] = -df_residual.clip(upper=0)
-            print(f"{area}: Curtailment {dfs_curtail_prev[area].mean().mean():.2f} MW")
-
-            df_residual.plot(title=f"Residual load profile for {area}", figsize=(12, 6))
-            plt.show()
-
-    dfs_curtail_prev["DK1"].plot()
-
-    dfs_residual["DK1"].resample("7D").sum().sum(axis=1).head()
-
-
-    

@@ -16,7 +16,6 @@ from lpr_sintef_bifrost.models import EMPSModelBuilder
 from lpr_sintef_bifrost.models.common import (
     Busbar,
     Load,
-    MarketStep,
 )
 from lpr_sintef_bifrost.models.connection import ObjectType
 from lpr_sintef_bifrost.models.emps import DcLine, Wind
@@ -26,6 +25,12 @@ from lpr_sintef_bifrost.models.emps._feedback_factors import (
     FeedbackFactors,
 )
 from lpr_sintef_bifrost.utils.unit import Unit
+
+from nuclear_modeling import (
+    NEW_NUCLEAR_FIRM_SHARE,
+    NEW_NUCLEAR_MARGINAL_COST,
+    add_new_nuclear,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 _logger = logging.getLogger("lpr_sintef_bifrost")
@@ -137,20 +142,25 @@ def get_busbar(config, node: str):
             return busbar
 
 
-def add_nuclear(config, node: str, capacity: float, price: float, capacity_factor: float = 0.90):
-    
-    df_nuclear_profile = pd.read_parquet("data/new_nuclear_profile.parquet")
-        
-    market_step = MarketStep(
-        name=f"{node} nuclear {uuid.uuid4().hex[:2]}",
-        capacity=TimeSeries(value=df_nuclear_profile*capacity, unit=Unit.MW),
-        price=TimeSeries(config=ConstantTimeseriesConfig(value=price), unit=Unit.EUR_MWH),
-        fuel_type="nuclear",
+def add_nuclear(
+    config,
+    node: str,
+    capacity: float,
+    price: float | None = None,
+    capacity_factor: float = 0.90,
+    improve_nuclear_rep: bool = False,
+    firm_share: float = NEW_NUCLEAR_FIRM_SHARE,
+):
+    return add_new_nuclear(
+        config=config,
+        node=node,
+        capacity=capacity,
+        price=NEW_NUCLEAR_MARGINAL_COST if price is None else price,
+        improve_nuclear_rep=improve_nuclear_rep,
+        firm_share=firm_share,
+        fallback_capacity_factor=capacity_factor,
+        logger=_logger,
     )
-
-    _logger.info(f"Adding MarketStep for {node} and type nuclear. {capacity} MW and marginal cost {price} EUR/MWh.")
-    config.add(market_step)
-    config.connect(to_obj=get_busbar(config, node), from_obj=market_step)
 
 
 def add_baseload(config, node: str, capacity: float):

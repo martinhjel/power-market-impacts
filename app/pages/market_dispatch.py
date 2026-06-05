@@ -1,188 +1,201 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Iterable, List
-
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from app.utils.processed import (
+    busbar_metric,
+    busbar_names,
+    connected_dcline_flows,
+    default_index,
+    list_processed_scenarios,
+    load_processed_scenario,
+    net_import_export,
+    result_label,
+    safe_busbar_metric,
+    select_timeseries,
+)
+
 st.set_page_config(layout="wide")
-st.title("📊 Market Dispatch")
+st.title("Market Dispatch From Processed Results")
 
-RESULT_ROOT = Path.cwd() / "ltm_output"
-
-
-def _result_label(p: Path) -> str:
-    parent = p.parent.name
-    if "1H" in parent:
-        res = "1H"
-    elif "1D" in parent:
-        res = "1D"
-    else:
-        res = parent
-    return f"{p.name} ({res})"
-
-
-result_paths = sorted([i for i in RESULT_ROOT.glob("*/*") if i.is_dir()], key=lambda p: p.name.lower())
+paths = list_processed_scenarios()
+if not paths:
+    st.error("No processed results found under ltm_processed/*/*/processed_data.parquet.")
+    st.stop()
 
 selected_path = st.sidebar.selectbox(
     "Select simulation:",
-    result_paths,
-    format_func=_result_label,
+    paths,
+    format_func=result_label,
     index=0,
 )
+path = str(selected_path)
+load_processed_scenario(path)
 
 st.sidebar.markdown(f"**Path:** `{selected_path}`")
-
-if st.sidebar.button("Reload Data"):
+if st.sidebar.button("Reload data"):
     st.cache_data.clear()
-    st.success("Cache cleared. Data will reload.")
+    st.cache_resource.clear()
+    st.rerun()
 
-processed_dir = selected_path / "results" / "processed"
-export_file = processed_dir / "market_dispatch.pkl"
-process_file = processed_dir / "market_dispatch.parquet"
-
-if not processed_dir.exists():
-    st.error(f"Processed results directory not found: {processed_dir}")
+areas = busbar_names(path)
+if not areas:
+    st.error("No busbar records found in the processed data.")
     st.stop()
 
-
-@st.cache_data
-def _read_export(path: Path) -> pd.DataFrame:
-    return pd.read_pickle(path)
-
-
-@st.cache_data
-def _read_process(path: Path) -> pd.DataFrame:
-    return pd.read_parquet(path)
+area = st.selectbox("Area", areas, index=default_index(areas, "NO2"))
+load = busbar_metric(path, area, "load")
+weather_years = ["Mean", *list(load.columns)]
+weather_year = st.selectbox("Weather year", weather_years, index=0)
 
 
-def _index_values(df: pd.DataFrame, level: str) -> List:
-    return list(df.index.get_level_values(level).unique())
+def metric_or_zero(metric: str) -> pd.DataFrame:
+    return safe_busbar_metric(path, area, metric, like=load)
 
 
-def _default_choice(options: Iterable, preferred) -> int:
-    try:
-        return list(options).index(preferred)
-    except ValueError:
-        return 0
+def series(metric: str) -> pd.Series:
+    return select_timeseries(metric_or_zero(metric), weather_year)
 
 
-def _plot_timeseries(df: pd.DataFrame, title: str, columns: List[str]) -> go.Figure:
+def plot_timeseries(df: pd.DataFrame, title: str, columns: list[str], yaxis_title: str = "MW") -> go.Figure:
     fig = go.Figure()
-    for col in columns:
-        if col not in df.columns:
+    for column in columns:
+        if column not in df.columns:
             continue
-        fig.add_trace(
-            go.Scatter(
-                x=df.index.get_level_values("timestamp"),
-                y=df[col],
-                name=col,
-                mode="lines",
-            )
-        )
+        fig.add_trace(go.Scatter(x=df.index, y=df[column], name=column, mode="lines"))
     fig.update_layout(
         title=title,
         xaxis_title="Timestamp",
-        yaxis_title="MW",
+        yaxis_title=yaxis_title,
         legend_title="Series",
         height=500,
+        hovermode="x unified",
     )
     return fig
 
 
-if not export_file.exists() and not process_file.exists():
-    st.error("No market dispatch outputs found in results/processed.")
-    st.info("Run market_dispatch_export.py and market_dispatch_process.py first.")
-    st.stop()
+fixed_nuclear = series("fixed_nuclear")
+total_nuclear = series("total_nuclear")
+flexible_nuclear_in_market_steps = total_nuclear.sub(fixed_nuclear, fill_value=0.0).clip(lower=0.0)
+other_market_steps = series("market_steps").sub(flexible_nuclear_in_market_steps, fill_value=0.0)
 
-export_df = None
-process_df = None
+export_df = pd.DataFrame(
+    {
+        "load": select_timeseries(load, weather_year),
+        "hydro": series("hydro"),
+        "onshore_wind": series("onshore_wind"),
+        "offshore_wind": series("offshore_wind"),
+        "solar": series("solar"),
+        "historic_nuclear": series("historic_nuclear"),
+        "new_nuclear": series("new_nuclear"),
+        "other_market_steps": other_market_steps,
+        "net_import_export": net_import_export(path, area, weather_year, load.index),
+    }
+)
 
-if export_file.exists():
-    export_df = _read_export(export_file)
-else:
-    st.warning(f"Missing export file: {export_file}")
-
-if process_file.exists():
-    process_df = _read_process(process_file)
-else:
-    st.warning(f"Missing process file: {process_file}")
-
-areas = []
-scenarios = []
-
-if export_df is not None:
-    areas = _index_values(export_df, "area")
-    scenarios = _index_values(export_df, "scenario")
-if process_df is not None:
-    areas = sorted(set(areas) | set(_index_values(process_df, "area")))
-    scenarios = sorted(set(scenarios) | set(_index_values(process_df, "scenario")))
-
-if not areas or not scenarios:
-    st.error("No areas or scenarios found in the processed files.")
-    st.stop()
-
-area_default = _default_choice(areas, "NO2")
-scenario_default = _default_choice(scenarios, 0)
-
-col_a, col_s = st.columns(2)
-with col_a:
-    area = st.selectbox("Area", areas, index=area_default)
-with col_s:
-    scenario = st.selectbox("Scenario", scenarios, index=scenario_default)
+process_df = pd.DataFrame(
+    {
+        "market_price": series("price"),
+        "total_nuclear": series("total_nuclear"),
+        "total_nuclear_available": series("total_nuclear_available"),
+        "historic_nuclear": series("historic_nuclear"),
+        "historic_nuclear_available": series("historic_nuclear_available"),
+        "new_nuclear": series("new_nuclear"),
+        "new_nuclear_available": series("new_nuclear_available"),
+        "flexible_nuclear_in_market_steps": flexible_nuclear_in_market_steps,
+        "other_market_steps": other_market_steps,
+        "biomass": series("biomass"),
+        "fossil_gas": series("fossil_gas"),
+        "fossil_other": series("fossil_other"),
+        "rationing": series("rationing"),
+        "market_spillage": series("market_spillage"),
+        "sum_market_steps": series("market_steps"),
+    }
+)
+process_df["total_dispatch_plus_import"] = (
+    export_df["hydro"]
+    + export_df["onshore_wind"]
+    + export_df["offshore_wind"]
+    + export_df["solar"]
+    + export_df["historic_nuclear"]
+    + export_df["new_nuclear"]
+    + export_df["other_market_steps"]
+    + export_df["net_import_export"]
+)
+process_df["diff_to_load"] = process_df["total_dispatch_plus_import"] - export_df["load"]
 
 left, right = st.columns(2)
-
 with left:
-    st.subheader("Market Dispatch Export")
-    if export_df is None:
-        st.info("No export data available.")
-    else:
-        df_exp = export_df.loc[(area, scenario)]
-        exp_cols = [
-            "load",
-            "hydro",
-            "onshore_wind",
-            "offshore_wind",
-            "solar",
-            "market_steps",
-            "net_import_export",
-        ]
-        fig = _plot_timeseries(df_exp, f"Export: {area} | Scenario {scenario}", exp_cols)
-        st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Dispatch Balance")
+    st.plotly_chart(
+        plot_timeseries(
+            export_df,
+            f"Dispatch: {area} | {weather_year}",
+            [
+                "load",
+                "hydro",
+                "onshore_wind",
+                "offshore_wind",
+                "solar",
+                "historic_nuclear",
+                "new_nuclear",
+                "other_market_steps",
+                "net_import_export",
+            ],
+        ),
+        width="stretch",
+    )
 
 with right:
-    st.subheader("Market Dispatch Process")
-    if process_df is None:
-        st.info("No process data available.")
-    else:
-        df_proc = process_df.loc[(area, scenario)]
-        core_cols = ["total", "sum_market_steps"]
-        drop_cols = {"market_price", "diff"}
-        proc_cols = core_cols + [c for c in df_proc.columns if c not in drop_cols and c not in core_cols]
-        fig = _plot_timeseries(df_proc, f"Process: {area} | Scenario {scenario}", proc_cols)
-        st.plotly_chart(fig, use_container_width=True)
-
-if process_df is not None:
-    df_proc = process_df.loc[(area, scenario)]
-    if "market_price" in df_proc.columns:
-        st.subheader("Market Price")
-        price_fig = go.Figure(
+    st.subheader("Merit Order Reconstruction")
+    st.plotly_chart(
+        plot_timeseries(
+            process_df,
+            f"Technology Dispatch: {area} | {weather_year}",
             [
-                go.Scatter(
-                    x=df_proc.index.get_level_values("timestamp"),
-                    y=df_proc["market_price"],
-                    name="market_price",
-                    mode="lines",
-                )
-            ]
+                "total_nuclear",
+                "total_nuclear_available",
+                "historic_nuclear",
+                "historic_nuclear_available",
+                "new_nuclear",
+                "new_nuclear_available",
+                "flexible_nuclear_in_market_steps",
+                "other_market_steps",
+                "biomass",
+                "fossil_gas",
+                "fossil_other",
+                "rationing",
+                "market_spillage",
+                "sum_market_steps",
+            ],
+        ),
+        width="stretch",
+    )
+
+st.subheader("Market Price")
+st.plotly_chart(
+    plot_timeseries(process_df, f"Market Price: {area} | {weather_year}", ["market_price"], yaxis_title="EUR/MWh"),
+    width="stretch",
+)
+
+if st.checkbox("Show individual DC line flows", value=False):
+    flow_df = pd.DataFrame(connected_dcline_flows(path=path, area=area, weather_year=weather_year))
+    if flow_df.empty:
+        st.info("No connected DC line flow records found for this area.")
+    else:
+        st.plotly_chart(
+            plot_timeseries(flow_df, f"Connected DC Lines: {area} | {weather_year}", list(flow_df.columns)),
+            width="stretch",
         )
-        price_fig.update_layout(
-            title=f"Market Price: {area} | Scenario {scenario}",
-            xaxis_title="Timestamp",
-            yaxis_title="€/MWh",
-            height=400,
-        )
-        st.plotly_chart(price_fig, use_container_width=True)
+
+st.subheader("Averages")
+avg_df = pd.concat(
+    [
+        export_df.mean().rename("dispatch_avg_mw"),
+        process_df.mean().rename("process_avg"),
+    ],
+    axis=1,
+)
+st.dataframe(avg_df.style.format("{:.2f}"))
