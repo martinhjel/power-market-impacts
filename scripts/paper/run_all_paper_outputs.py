@@ -253,6 +253,7 @@ def main() -> int:
 
     env = os.environ.copy()
     env.setdefault("MPLBACKEND", "Agg")
+    env.setdefault("MPLCONFIGDIR", str(PROJECT_ROOT / ".matplotlib-cache"))
     env["PAPER_MODEL_FOLDER"] = args.model_folder
     env["PYTHONPATH"] = (
         str(PROJECT_ROOT)

@@ -22,7 +22,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_RECORD_ID = "<record_id>"
+DEFAULT_RECORD_ID = "19231110"
 MODEL_FOLDER = "PowerGamaMSc_2025_BM_1H_serial_TrueEXO_load"
 IMPROVED_NUCLEAR_MODEL_FOLDER = f"{MODEL_FOLDER}_imp_nuke"
 
@@ -37,7 +37,7 @@ ARCHIVES = [
         "filename": "results_processed.tar.gz",
         "target": Path("ltm_processed") / MODEL_FOLDER,
         "label": "processed simulation results",
-        "md5": None,
+        "md5": "51cf1c05e52b415b159c76d530a8065d",
     },
     {
         "filename": "results_processed_imp_nuke.tar.gz",
@@ -47,12 +47,14 @@ ARCHIVES = [
     },
 ]
 
+_LAST_PROGRESS_MARK = -1
+
 
 def main() -> None:
     args = parse_args()
     record_id = args.record_id or os.environ.get("ZENODO_RECORD_ID") or DEFAULT_RECORD_ID
 
-    if not record_id or record_id == DEFAULT_RECORD_ID:
+    if not record_id or record_id == "<record_id>":
         raise SystemExit(
             "Zenodo record ID is missing. Run with '--record-id <id>', "
             "set ZENODO_RECORD_ID, or update DEFAULT_RECORD_ID in download_data.py."
@@ -117,10 +119,12 @@ def download_and_extract(
     force: bool,
     keep_archive: bool,
 ) -> None:
+    global _LAST_PROGRESS_MARK
     if target.exists() and any(target.iterdir()) and not force:
         print(f"'{target}' already exists and is non-empty - skipping {label}.")
         return
 
+    _LAST_PROGRESS_MARK = -1
     print(f"Downloading {label} ({archive.name}) from Zenodo...")
     urllib.request.urlretrieve(url, archive, reporthook=_progress)
     print()
@@ -161,13 +165,21 @@ def file_md5(path: Path) -> str:
 
 
 def _progress(block_num: int, block_size: int, total_size: int) -> None:
+    global _LAST_PROGRESS_MARK
     downloaded = block_num * block_size
     if total_size <= 0:
         mb = downloaded / 1024**2
-        print(f"\r  {mb:.0f} MB", end="", flush=True)
+        mark = int(mb // 100)
+        if mark != _LAST_PROGRESS_MARK:
+            _LAST_PROGRESS_MARK = mark
+            print(f"\r  {mb:.0f} MB", end="", flush=True)
         return
 
     pct = min(downloaded / total_size * 100, 100)
+    mark = int(pct // 5)
+    if mark == _LAST_PROGRESS_MARK and pct < 100:
+        return
+    _LAST_PROGRESS_MARK = mark
     mb = downloaded / 1024**2
     total_mb = total_size / 1024**2
     print(f"\r  {pct:.1f}%  ({mb:.0f} / {total_mb:.0f} MB)", end="", flush=True)
@@ -196,11 +208,17 @@ def normalize_extracted_target(target: Path) -> None:
 
 def safe_extract(tar: tarfile.TarFile, target_dir: Path) -> None:
     target_dir = target_dir.resolve()
-    for member in tar.getmembers():
+    members = [
+        member
+        for member in tar.getmembers()
+        if not Path(member.name).name.startswith("._")
+        and "__MACOSX" not in Path(member.name).parts
+    ]
+    for member in members:
         member_path = (target_dir / member.name).resolve()
         if target_dir not in [member_path, *member_path.parents]:
             raise RuntimeError(f"Unsafe path in tar archive: {member.name}")
-    tar.extractall(target_dir)
+    tar.extractall(target_dir, members)
 
 
 if __name__ == "__main__":

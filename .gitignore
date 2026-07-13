@@ -211,3 +211,5 @@ processed/
 data/
 ltm_output/
 ltm_processed/
+._*
+.matplotlib-cache/
