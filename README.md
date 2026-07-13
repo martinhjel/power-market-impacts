@@ -1,4 +1,4 @@
-# Power Market Impacts of Nuclear Energy in Hydropower-Dominated Power Systems
+# Market Impacts of Nuclear Energy in Hydro-Dominated Power Systems
 
 Scripts and data associated with the following study:
 
