@@ -4,13 +4,20 @@ Scripts and data associated with the following study:
 
 > Hjelmeland, M. and Nøland, J. K. (2026). *Power Market Impacts of Nuclear Energy in Hydropower-Dominated Power Systems*. Norwegian University of Science and Technology (NTNU). Posted: 25 Mar 2026. Available at SSRN: https://ssrn.com/abstract=6467238 or http://dx.doi.org/10.2139/ssrn.6467238
 
+The paper has been accepted for publication in *Advances in Applied Energy*.
+
+Input data and processed simulation results are archived on Zenodo:
+https://zenodo.org/records/19231110
+
 ---
 
 ## Requirements
 
-Install the public Python dependencies with:
+Install the public Python dependencies in a virtual environment:
 
 ```bash
+python -m venv .venv
+. .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
@@ -56,13 +63,15 @@ Three main technology deployment cases are studied: offshore wind (**OW**), nucl
 
 ## Reproducing Outputs
 
-Download the input and processed result archives from Zenodo:
+Download and extract the input data and processed result archives from Zenodo:
 
 ```bash
-python download_data.py --record-id <zenodo_record_id>
+python download_data.py
 ```
 
-The download helper expects these Zenodo files:
+`download_data.py` defaults to Zenodo record `19231110`. You can override this
+with `--record-id <zenodo_record_id>` or `ZENODO_RECORD_ID=<zenodo_record_id>`.
+The helper downloads and checksum-verifies these Zenodo files:
 
 ```text
 data.tar.gz
@@ -70,8 +79,7 @@ results_processed.tar.gz
 results_processed_imp_nuke.tar.gz
 ```
 
-You can also set `ZENODO_RECORD_ID=<zenodo_record_id>` instead of passing
-`--record-id`.
+Existing non-empty target folders are skipped unless `--force` is passed.
 
 Generate the paper figures from processed results with:
 
@@ -83,7 +91,9 @@ python scripts/paper/run_all_paper_outputs.py \
 To run only a specific paper output group:
 
 ```bash
-python scripts/paper/run_all_paper_outputs.py --only revenue surplus
+python scripts/paper/run_all_paper_outputs.py \
+  --model-folder PowerGamaMSc_2025_BM_1H_serial_TrueEXO_load_imp_nuke \
+  --only revenue surplus
 ```
 
 The outputs are written to:
@@ -95,6 +105,10 @@ visualizations/<model_folder>/paper/
 ---
 
 ## Scenario Construction
+
+The following scripts document the scenario construction workflow used in the
+study, but they are not required for reproducing the public paper figures from
+the Zenodo processed-result archive.
 
 The scenario runner supports selecting individual scenarios:
 
